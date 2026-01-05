@@ -1,0 +1,24 @@
+# binaries
+arena
+arena_test
+arena_test_cov
+pbrain-*
+
+# view
+.env
+data/
+dist/
+node_modules/
+
+# other
+bots/
+build/
+coverage/
+
+# objects
+*.o
+*.d
+*.gcda
+*.gcno
+*.pyc
+*.log

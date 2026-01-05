@@ -1,0 +1,27 @@
+{
+  "name": "gomoku-api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --experimental-vm-modules node_modules/vitest/vitest.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check *.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.5.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
+    "prettier": "^3.7.4",
+    "supertest": "^7.1.4",
+    "vitest": "^4.0.16"
+  }
+}
