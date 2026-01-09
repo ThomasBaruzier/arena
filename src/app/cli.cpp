@@ -36,7 +36,7 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
         std::cout << "RESOURCE LIMITS\n"
             << "  Memory: k, m (default), g. Nodes override time control (deterministic).\n"
             << "  Long forms: --p1-memory, --p2-max-nodes, --eval-max-nodes, etc.\n\n"
-            << "  -l[1|2], --memory           limit memory (default: unlimited)\n"
+            << "  -l[1|2], --memory            limit memory (default: unlimited)\n"
             << "  -N[1|2|e], --max-nodes       search node limit (evaluator default: 15M)\n\n";
 
         std::cout << "MATCH CONTROL\n"

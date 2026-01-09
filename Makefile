@@ -42,13 +42,6 @@ DEPS            := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(COV_OBJS:.o=.d)
 
 .PHONY: all clean fclean re engine test cov coverage view-dev view-prod
 
-view-dev:
-	cd view && docker-compose -f docker-compose.dev.yml up --build
-
-view-prod:
-	cd view && docker-compose up --build
-
-
 all: $(NAME) engine
 
 $(NAME): $(OBJS)
@@ -94,6 +87,12 @@ coverage: $(COV_NAME)
 	done
 	mv *.gcov $(COV_REPORT_DIR)/ 2>/dev/null || true
 	bash $(MISC_DIR)/cov.sh $(COV_REPORT_DIR)
+
+view-dev:
+	cd view && docker-compose -f docker-compose.dev.yml up --build
+
+view-prod:
+	cd view && docker-compose up --build
 
 clean:
 	rm -rf $(BUILD_DIR) $(COV_REPORT_DIR)
