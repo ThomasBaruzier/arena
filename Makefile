@@ -104,6 +104,7 @@ fclean: clean
 	rm -f $(NAME) $(TEST_NAME) $(ENGINE_NAME) $(COV_NAME)
 	rm -rf $(RAPFI_DIR)/build
 
-re: fclean all
+re: fclean
+	@$(MAKE) all
 
 -include $(DEPS)
