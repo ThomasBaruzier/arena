@@ -242,7 +242,7 @@ void Referee::finish(double res) {
     pl2_.stop();
 
     Core::Logger::log(
-        Core::Logger::Level::DEBUG,
+        Core::Logger::Level::INFO,
         "Peak Memory: P1=", pl1_.peak_mem(),
         "KB P2=", pl2_.peak_mem(), "KB"
     );

@@ -402,7 +402,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
 
                 if (regret > Core::Constants::METRIC_SEVERE_ERROR_REGRET) {
                     Core::Logger::log(
-                        Core::Logger::Level::WARN,
+                        Core::Logger::Level::DEBUG,
                         ">>> BLUNDER <<< Move ", job.moves.size(), " P", job.bot_id,
                         " Regret=", std::fixed, std::setprecision(3), regret,
                         " (played=", m.p_played, " vs best=", m.p_best, ")"
