@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { BOARD_SIZE, getWinningLine } from '../utils';
 
-export default function Board({ parsedMoves, moveIndex, winnerColor, isPlaying }) {
+const Board = memo(function Board({ parsedMoves, moveIndex, winnerColor, isPlaying }) {
   const boardState = useMemo(() => {
     const map = new Map();
     for (let i = 0; i < moveIndex && parsedMoves[i]; i++) {
@@ -66,4 +66,6 @@ export default function Board({ parsedMoves, moveIndex, winnerColor, isPlaying }
       </div>
     </div>
   );
-}
+});
+
+export default Board;

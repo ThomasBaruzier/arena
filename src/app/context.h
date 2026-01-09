@@ -56,10 +56,10 @@ namespace Arena::App {
         bool should_send_update() {
             std::lock_guard<std::mutex> l(api_mtx);
             auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - last_api_update
             ).count();
-            if (elapsed >= 1) {
+            if (elapsed >= cfg.debounce_ms) {
                 last_api_update = now;
                 return true;
             }
