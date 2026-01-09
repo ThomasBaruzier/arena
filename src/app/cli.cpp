@@ -154,7 +154,7 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
     bc.board_size = get_int("-s", "--size", "SIZE", Core::Constants::DEFAULT_BOARD_SIZE);
     bc.openings_path = get_str("-o", "--openings", "OPENINGS");
     bc.shuffle_openings = consume_flag("--shuffle-openings");
-    bc.threads = get_int("-j", "--threads", "THREADS", Core::Constants::DEFAULT_THREADS);
+    bc.threads = get_int("-j", "--threads", "THREADS", -1);
 
     int common_announce = get_dur(
         "-t", "--timeout-announce", "TIMEOUT_ANNOUNCE", Core::Constants::DEFAULT_TIMEOUT_TURN_MS
@@ -221,7 +221,7 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
     bc.api_url = get_str("", "--api-url", "API_URL");
     bc.api_key = get_str("", "--api-key", "API_KEY");
     bc.debounce_ms = get_dur(
-        "", "--debounce", "DEBOUNCE", std::max(100, bc.p1_timeout_announce / 2)
+        "", "--debounce", "DEBOUNCE", 500
     );
     if (auto v = consume("--export-results");
     v && !v->empty()) bc.export_results = *v;
@@ -256,6 +256,20 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
     for (const auto& arg : args) {
         if (!arg.empty()) {
             throw std::runtime_error("Unknown argument: " + arg);
+        }
+    }
+
+    if (bc.threads == -1) {
+        bool is_iter =
+            !bc.common_nodes_list.empty() ||
+            !bc.p1_nodes_list.empty() ||
+            !bc.p2_nodes_list.empty();
+        int hw = std::thread::hardware_concurrency();
+        if (hw == 0) hw = 4;
+        if (is_iter) {
+            bc.threads = hw;
+        } else {
+            bc.threads = std::max(1, hw / 2 - 1);
         }
     }
 

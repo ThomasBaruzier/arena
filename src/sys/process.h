@@ -47,6 +47,7 @@ private:
     std::optional<std::string> try_extract_line();
     std::string reap_exit_status();
     void read_available_data(int timeout_ms);
+    static std::string decode_exit_status(int status);
 
     std::string cmd_;
     std::string buf_;

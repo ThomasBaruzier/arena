@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <thread>
 
 using namespace Arena;
 
@@ -284,4 +285,42 @@ TEST_F(CliArgsTest, RepeatAndSeed) {
     EXPECT_EQ(bc.seeds[0], 100);
     EXPECT_EQ(bc.seeds[1], 200);
     EXPECT_EQ(bc.seeds[2], 300);
+}
+
+TEST_F(CliArgsTest, DefaultsVerification) {
+    add_arg("-1"); add_arg("p1");
+    add_arg("-2"); add_arg("p2");
+    auto bc = parse();
+
+    ASSERT_FALSE(bc.min_pairs_list.empty());
+    ASSERT_FALSE(bc.max_pairs_list.empty());
+    EXPECT_EQ(bc.min_pairs_list[0], 1);
+    EXPECT_EQ(bc.max_pairs_list[0], 50);
+    EXPECT_EQ(bc.debounce_ms, 500);
+    EXPECT_EQ(bc.risk, 0.0);
+
+    int hw = std::thread::hardware_concurrency();
+    int expected_threads = (hw == 0) ? 4 : std::max(1, hw/2 - 1);
+    EXPECT_EQ(bc.threads, expected_threads);
+}
+
+TEST_F(CliArgsTest, ThreadsDefaultIter) {
+    add_arg("-1"); add_arg("p1");
+    add_arg("-2"); add_arg("p2");
+    add_arg("-N"); add_arg("100k");
+    auto bc = parse();
+
+    int hw = std::thread::hardware_concurrency();
+    if (hw == 0) hw = 4;
+    EXPECT_EQ(bc.threads, hw);
+}
+
+TEST_F(CliArgsTest, EvalNodesDefault) {
+    Core::BatchConfig bc;
+    bc.p1_cmd = "p1"; bc.p2_cmd = "p2";
+    bc.min_pairs_list = {1}; bc.max_pairs_list = {1};
+
+    auto runs = App::CLI::expand_batch(bc);
+    ASSERT_GT(runs.size(), 0);
+    EXPECT_EQ(runs[0].eval_nodes, 2000000ULL);
 }

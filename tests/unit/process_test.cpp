@@ -106,19 +106,29 @@ TEST_F(ProcessTest, RSSMonitoring) {
 TEST_F(ProcessTest, ExitStatusSegFault) {
     Sys::Process proc("sh -c 'kill -SEGV $$'");
     proc.start(0);
-    EXPECT_THROW(proc.read_line(1000, nullptr), Core::PlayerError);
+    EXPECT_THROW({
+        for(int i=0; i<100; ++i)
+             if (!proc.read_line(1000, nullptr)) break;
+    }, Core::PlayerError);
 }
 
 TEST_F(ProcessTest, ExitStatusAbort) {
     Sys::Process proc("sh -c 'kill -ABRT $$'");
     proc.start(0);
-    EXPECT_THROW(proc.read_line(1000, nullptr), Core::PlayerError);
+    EXPECT_THROW({
+        for(int i=0; i<100; ++i)
+             if (!proc.read_line(1000, nullptr)) break;
+    }, Core::PlayerError);
 }
 
 TEST_F(ProcessTest, ExitStatusKill) {
     Sys::Process proc("sh -c 'kill -KILL $$'");
     proc.start(0);
-    EXPECT_THROW(proc.read_line(1000, nullptr), Core::PlayerError);
+    EXPECT_THROW({
+        for(int i=0; i<100; ++i) {
+             if (!proc.read_line(1000, nullptr)) break;
+        }
+    }, Core::PlayerError);
 }
 
 TEST_F(ProcessTest, ElapsedTimeTracking) {

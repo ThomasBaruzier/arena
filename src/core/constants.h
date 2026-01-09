@@ -16,8 +16,8 @@ namespace Arena::Core::Constants {
     constexpr int DEFAULT_BOARD_SIZE = 20;
     constexpr int WINNING_LENGTH = 5;
 
-    constexpr int DEFAULT_MIN_PAIRS = 5;
-    constexpr int DEFAULT_MAX_PAIRS = 10;
+    constexpr int DEFAULT_MIN_PAIRS = 1;
+    constexpr int DEFAULT_MAX_PAIRS = 50;
     constexpr double DEFAULT_RISK = 0.0;
 
     constexpr int DEFAULT_TIMEOUT_TURN_MS = 5000;
@@ -44,7 +44,7 @@ namespace Arena::Core::Constants {
     constexpr int PROTOCOL_RULE = 0;
     constexpr int PROTOCOL_THREAD_NUM = 1;
 
-    constexpr uint64_t DEFAULT_EVAL_NODES = 15000000;
+    constexpr uint64_t DEFAULT_EVAL_NODES = 2000000;
     constexpr int DEFAULT_EVAL_CUTOFF_MS = 30000;
     constexpr double METRIC_CRITICAL_SHARPNESS = 0.05;
     constexpr double METRIC_CRITICAL_SUCCESS_REGRET = 0.02;

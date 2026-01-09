@@ -111,6 +111,16 @@ std::optional<std::string> Process::read_line(
             now - start
         ).count();
         if (used >= timeout_ms) {
+            int status;
+            struct rusage usage;
+
+            if (wait4(pid_, &status, WNOHANG, &usage) > 0) {
+                peak_mem_kb_ = usage.ru_maxrss;
+                pid_ = 0;
+                std::string reason = decode_exit_status(status);
+                throw Core::PlayerError("Process died: " + reason);
+            }
+
             if (elapsed_ms) *elapsed_ms = used;
             return std::nullopt;
         }
@@ -251,6 +261,10 @@ std::string Process::reap_exit_status() {
     peak_mem_kb_ = usage.ru_maxrss;
     pid_ = 0;
 
+    return decode_exit_status(status);
+}
+
+std::string Process::decode_exit_status(int status) {
     if (WIFEXITED(status)) {
         int code = WEXITSTATUS(status);
         return (code == 0)
