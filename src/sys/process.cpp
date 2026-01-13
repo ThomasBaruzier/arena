@@ -8,6 +8,8 @@
 #include <poll.h>
 #include <thread>
 #include <chrono>
+#include <sstream>
+#include <iostream>
 #include "../core/constants.h"
 #include "../core/types.h"
 #include "signals.h"
@@ -29,6 +31,8 @@ bool Process::start(
         access(args[0].c_str(), F_OK) == 0) {
         args[0] = "./" + args[0];
     }
+
+    std::string resolved_path = resolve_path(args[0]);
 
     std::vector<char*> c_args;
     for (auto& a : args)
@@ -60,7 +64,10 @@ bool Process::start(
     }
 
     if (pid_ == 0) {
-        start_child_process(in, out, max_mem_bytes, c_args.data(), envp.data());
+        start_child_process(
+            in, out, max_mem_bytes,
+            c_args.data(), envp.data(), resolved_path.c_str()
+        );
     }
 
     in_fd_ = in[1];
@@ -146,7 +153,7 @@ long Process::get_current_rss_kb() const {
 
 void Process::start_child_process(
     int in[2], int out[2], long long mem_bytes,
-    char** argv, char** envp
+    char** argv, char** envp, const char* path
 ) {
     setpgid(0, 0);
     prctl(PR_SET_PDEATHSIG, SIGTERM);
@@ -164,8 +171,7 @@ void Process::start_child_process(
     close(in[0]); close(in[1]);
     close(out[0]); close(out[1]);
 
-    environ = envp;
-    execvp(argv[0], argv);
+    execve(path, argv, envp);
     _exit(Core::Constants::EXIT_CODE_EXEC_FAILED);
 }
 
@@ -313,6 +319,25 @@ void Process::read_available_data(int timeout_ms) {
         throw Core::PlayerError("Process Output Buffer Overflow");
     }
     buf_.append(tmp, n);
+}
+
+std::string Process::resolve_path(const std::string& file) {
+    if (file.find('/') != std::string::npos) return file;
+
+    const char* path_env = getenv("PATH");
+    if (!path_env) return file;
+
+    std::string path_str = path_env;
+    std::stringstream ss(path_str);
+    std::string dir;
+
+    while (std::getline(ss, dir, ':')) {
+        std::string full_path = dir + "/" + file;
+        if (access(full_path.c_str(), X_OK) == 0) {
+            return full_path;
+        }
+    }
+    return file;
 }
 
 }

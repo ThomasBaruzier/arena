@@ -2,8 +2,8 @@ import express from 'express';
 import * as db from './db.js';
 import * as repo from './repository.js';
 import sse from './sse.js';
-import { compareVersions } from './utils.js';
 import { API_KEY } from './config.js';
+import { compareVersions } from './utils.js';
 
 const router = express.Router();
 
@@ -47,12 +47,20 @@ router.post('/batch', auth, (req, res) => {
       try {
         if (e.type === 'run_start') {
           const runId = e.run_id || e.id;
+          const p1Name = e.p1_name || e.p1n || 'Unknown';
+          const p1Ver = e.p1_version || e.p1v || '0.0';
+          const p2Name = e.p2_name || e.p2n || 'Unknown';
+          const p2Ver = e.p2_version || e.p2v || '0.0';
+
+          getPlayerId(p1Name, p1Ver);
+          getPlayerId(p2Name, p2Ver);
+
           repo.insertRun({
             id: runId,
-            p1_name: e.p1_name || e.p1n,
-            p1_version: e.p1_version || e.p1v,
-            p2_name: e.p2_name || e.p2n,
-            p2_version: e.p2_version || e.p2v,
+            p1_name: p1Name,
+            p1_version: p1Ver,
+            p2_name: p2Name,
+            p2_version: p2Ver,
             config_label: e.config_label,
             total_games: e.total_games,
             p1_nodes: e.p1_nodes || 0,
@@ -70,12 +78,20 @@ router.post('/batch', auth, (req, res) => {
           const existing = repo.getRunById(runId);
           if (existing) {
             const merged = { ...existing, ...e, id: runId, is_done: e.is_done ? 1 : 0 };
-            repo.updateRun(merged);
+            repo.updateRun({
+              ...merged,
+              p1_time: e.p1_time || 0,
+              p2_time: e.p2_time || 0,
+              p1_cma: e.p1_cma || 0,
+              p1_blunder: e.p1_blunder || 0,
+              p2_cma: e.p2_cma || 0,
+              p2_blunder: e.p2_blunder || 0
+            });
             broadcasts.push({ type: 'run_update', run: repo.getRunById(runId) });
           }
         } else if (e.type === 'start') {
-          const bId = getPlayerId(e.p1n, e.p1v);
-          const wId = getPlayerId(e.p2n, e.p2v);
+          const bId = getPlayerId(e.p1n || 'Unknown', e.p1v || '0.0');
+          const wId = getPlayerId(e.p2n || 'Unknown', e.p2v || '0.0');
           const parts = e.external_id.split('_');
           const tournamentId = e.run_id || parts[0] || 'unknown';
           const groupId = e.external_id.includes('_')
@@ -89,7 +105,8 @@ router.post('/batch', auth, (req, res) => {
             black_id: bId,
             white_id: wId,
             run_id: e.run_id || null,
-            black_is_p1: e.black_is_p1 ? 1 : 0
+            black_is_p1: e.black_is_p1 ? 1 : 0,
+            opening_len: e.op_len || 0
           });
 
           if (info.changes > 0) {
@@ -119,6 +136,7 @@ router.post('/batch', auth, (req, res) => {
           if (!state) continue;
           state.winner_color = e.winner;
           if (e.moves) state.moves = e.moves;
+          if (e.duration) state.duration = e.duration;
           state.modified = true;
           broadcasts.push({
             type: 'game_result',
@@ -130,7 +148,8 @@ router.post('/batch', auth, (req, res) => {
             move_count: state.moves ? state.moves.split(';').length : 0,
             black_id: state.black_id,
             white_id: state.white_id,
-            group_id: state.group_id
+            group_id: state.group_id,
+            duration: e.duration
           });
         }
       } catch (err) {
@@ -139,7 +158,12 @@ router.post('/batch', auth, (req, res) => {
     }
     for (const state of batchState.values()) {
       if (state.modified) {
-        repo.updateGameFull({ moves: state.moves, winner: state.winner_color, id: state.id });
+        repo.updateGameFull({
+          moves: state.moves,
+          winner: state.winner_color,
+          duration: state.duration,
+          id: state.id
+        });
       }
     }
   });
@@ -160,49 +184,28 @@ router.get('/runs', (req, res) => res.json(repo.getAllRuns()));
 router.get('/matchups', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
   const offset = parseInt(req.query.offset) || 0;
-  const rows = repo.getRawStats();
-  const players = Object.fromEntries(repo.getAllPlayers().map((p) => [p.id, p]));
-  const groups = {};
 
-  for (const r of rows) {
-    const tid = r.tournament_id || 'legacy';
-    const k =
-      r.black_id < r.white_id
-        ? `${tid}-${r.black_id}-${r.white_id}`
-        : `${tid}-${r.white_id}-${r.black_id}`;
-    if (!groups[k]) {
-      const pA = players[r.black_id];
-      const pB = players[r.white_id];
-      const isAGreater = compareVersions(pA, pB) >= 0;
-      groups[k] = {
-        tournamentId: tid,
-        hero: isAGreater ? pA : pB,
-        villain: isAGreater ? pB : pA,
-        heroWins: 0,
-        villainWins: 0,
-        draws: 0,
-        total: 0,
-        lastActivity: ''
-      };
-    }
-    const g = groups[k];
-    const isHeroBlack = g.hero.id === r.black_id;
-    const isSelfPlay = r.black_id === r.white_id;
-    if (r.winner_color === 3) {
-      g.draws += r.cnt;
-    } else if (isSelfPlay) {
-      if (r.leg === 0) r.winner_color === 1 ? (g.heroWins += r.cnt) : (g.villainWins += r.cnt);
-      else r.winner_color === 1 ? (g.villainWins += r.cnt) : (g.heroWins += r.cnt);
-    } else {
-      if (r.winner_color === 1) isHeroBlack ? (g.heroWins += r.cnt) : (g.villainWins += r.cnt);
-      else if (r.winner_color === 2)
-        !isHeroBlack ? (g.heroWins += r.cnt) : (g.villainWins += r.cnt);
-    }
-    g.total += r.cnt;
-    if (r.last_ts > g.lastActivity) g.lastActivity = r.last_ts;
-  }
-  const sorted = Object.values(groups).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
-  res.json(sorted.slice(offset, offset + limit));
+  const runs = repo.getRunsForMatchups(limit, offset);
+
+  const result = runs.map((r) => {
+    const p1 = { id: r.p1_id || 0, name: r.p1_name, version: r.p1_version };
+    const p2 = { id: r.p2_id || 0, name: r.p2_name, version: r.p2_version };
+    const p1IsHero = compareVersions(p1, p2) >= 0;
+
+    return {
+      tournamentId: r.tournamentId,
+      hero: p1IsHero ? p1 : p2,
+      villain: p1IsHero ? p2 : p1,
+      heroWins: p1IsHero ? r.wins : r.losses,
+      villainWins: p1IsHero ? r.losses : r.wins,
+      draws: r.draws,
+      total: r.games_played,
+      lastActivity: r.updated_at,
+      live_count: r.live_count
+    };
+  });
+
+  res.json(result);
 });
 
 router.get('/games', (req, res) => {
@@ -220,6 +223,8 @@ router.get('/games', (req, res) => {
     orderBy = asc
       ? 'live_count ASC, hero_wins ASC, max_id DESC'
       : 'live_count DESC, hero_wins DESC, max_id DESC';
+  else if (sort === 'duration')
+    orderBy = asc ? 'duration ASC, max_id DESC' : 'duration DESC, max_id DESC';
   else if (sort === 'id') orderBy = `max_id ${dir}`;
 
   try {
@@ -232,7 +237,13 @@ router.get('/games', (req, res) => {
       offset: o,
       orderBy
     });
-    res.json(rows.map((r) => ({ ...r, games: JSON.parse(r.games_json) })));
+    res.json(
+      rows.map((r) => {
+        const games = JSON.parse(r.games_json);
+        games.sort((a, b) => (asc ? a.id - b.id : b.id - a.id));
+        return { ...r, games };
+      })
+    );
   } catch {
     res.status(500).json([]);
   }
@@ -241,6 +252,18 @@ router.get('/games', (req, res) => {
 router.get('/game/:id', (req, res) => {
   const g = repo.getGameDetails(req.params.id);
   if (!g) return res.sendStatus(404);
+
+  if (req.query.context === 'true' && g.run_id) {
+    const rOffset = repo.getRunOffset(g.run_id);
+    if (rOffset) g.matchup_offset = rOffset.offset;
+
+    const groupMax = repo.getGameGroupMaxId(g.group_id);
+    if (groupMax) {
+      const gOffset = repo.getGameGroupOffset(g.run_id, groupMax.max_id);
+      if (gOffset) g.game_offset = gOffset.offset;
+    }
+  }
+
   res.json(g);
 });
 

@@ -34,8 +34,6 @@ namespace Arena::App {
         MatchState match_state;
 
         std::atomic<long long> total_wall_time_ms{0};
-        std::atomic<long long> total_p1_cpu{0}, total_p2_cpu{0};
-        std::atomic<long long> total_p1_wall{0}, total_p2_wall{0};
 
         std::chrono::steady_clock::time_point run_start;
         Sys::CpuMonitor::Times run_start_cpu;

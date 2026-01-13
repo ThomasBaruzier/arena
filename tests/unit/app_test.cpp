@@ -18,13 +18,12 @@ TEST_F(AppTest, NdjsonFormat) {
     stats.p1_elo = 1200;
 
     std::string json = App::format_ndjson_line(
-        bc, rs, state, stats, 10.0, 0.5, 90.0, 80.0
+        bc, rs, state, stats, 10.0
     );
 
     EXPECT_NE(json.find("\"p1_cmd\":\"p1\""), std::string::npos);
     EXPECT_NE(json.find("\"wins\":5"), std::string::npos);
     EXPECT_NE(json.find("\"elo\":1200"), std::string::npos);
-    EXPECT_NE(json.find("\"p1_efficiency\":90"), std::string::npos);
 }
 
 TEST_F(AppTest, RunContextLogic) {
@@ -82,13 +81,14 @@ TEST_F(AppTest, NdjsonFormatFullStats) {
     stats.p2_severe_errors = 0; stats.p2_moves_analyzed = 100;
 
     std::string json = App::format_ndjson_line(
-        bc, rs, state, stats, 10.0, 0.5, 90.0, 80.0
+        bc, rs, state, stats, 10.0
     );
 
     EXPECT_NE(json.find("\"p1\":{"), std::string::npos);
     EXPECT_NE(json.find("\"p2\":{"), std::string::npos);
-    EXPECT_NE(json.find("\"blunder\":"), std::string::npos);
     EXPECT_NE(json.find("\"elo\":"), std::string::npos);
+    EXPECT_NE(json.find("\"erf\":"), std::string::npos);
+    EXPECT_NE(json.find("\"time\":"), std::string::npos);
 }
 
 TEST_F(AppTest, PendingGamesOpeningBounds) {

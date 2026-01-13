@@ -200,7 +200,8 @@ if [ -f "$EXPORT" ]; then
     head -1 "$EXPORT" | grep -q '"duration"' && pass "Has duration field" || fail "Has duration field"
     head -1 "$EXPORT" | grep -q '"wins"' && pass "Has wins field" || fail "Has wins field"
     head -1 "$EXPORT" | grep -q '"elo"' && pass "Has elo field" || fail "Has elo field"
-    head -1 "$EXPORT" | grep -q '"sw_dqi"' && pass "Has sw_dqi field" || fail "Has sw_dqi field"
+    head -1 "$EXPORT" | grep -q '"erf"' && pass "Has erf field" || fail "Has erf field"
+    head -1 "$EXPORT" | grep -q '"time"' && pass "Has time field" || fail "Has time field"
     head -1 "$EXPORT" | grep -q '"seed"' && pass "Has seed field" || fail "Has seed field"
 
     python3 -c "import json; [json.loads(l) for l in open('$EXPORT') if l.strip()]" 2>/dev/null && \

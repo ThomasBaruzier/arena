@@ -1,6 +1,7 @@
 #include "player.h"
 #include "../core/constants.h"
 #include "../core/logger.h"
+#include "../core/utils.h"
 #include "../core/types.h"
 #include <regex>
 
@@ -19,13 +20,23 @@ namespace Arena::Game {
     bool Player::start(
         long long mem, const std::map<std::string, std::string>& env_vars)
     {
-        return proc_->start(mem, env_vars);
+        bool ok = proc_->start(mem, env_vars);
+        if (ok) {
+            Core::Logger::log(
+                Core::Logger::Level::DEBUG,
+                "Started ", id_, " (", name_, ") PID: ", proc_->pid()
+            );
+        }
+        return ok;
     }
 
     void Player::send(const std::string& cmd) {
-        Core::Logger::log(
-            Core::Logger::Level::DEBUG, "-> ", id_, ": ", cmd
-        );
+        if (Core::Logger::is_debug()) {
+             Core::Logger::log(
+                Core::Logger::Level::DEBUG, "-> ", id_,
+                " (", cmd.size(), "B): ", Core::Utils::truncate(cmd)
+            );
+        }
         if (!proc_->write_line(cmd))
             throw std::runtime_error("Write to process failed");
     }
@@ -43,10 +54,18 @@ namespace Arena::Game {
             }
 
             std::string s = *line;
+
+            if (Core::Logger::is_debug()) {
+                Core::Logger::log(
+                    Core::Logger::Level::DEBUG, "<- ", id_,
+                    " (", s.size(), "B): ", Core::Utils::truncate(s)
+                );
+            }
+
             if (is_message_or_debug(s)) {
                 Core::Logger::log(
                     Core::Logger::Level::INFO,
-                    id_, " says: ", s
+                    "[", id_, "] ", s
                 );
                 timeout = std::max(
                     Core::Constants::MIN_TURN_TIMEOUT_MS,
@@ -59,6 +78,22 @@ namespace Arena::Game {
                 Core::Logger::log(
                     Core::Logger::Level::WARN,
                     id_, " UNKNOWN cmd: ", s
+                );
+                timeout = std::max(
+                    Core::Constants::MIN_TURN_TIMEOUT_MS,
+                    timeout - (int)turn_elapsed
+                );
+                continue;
+            }
+
+            static const std::regex move_re("^[0-9]+,[0-9]+$");
+            static const std::regex ok_re("^OK$");
+            bool looks_valid = std::regex_match(s, move_re) || std::regex_match(s, ok_re);
+
+            if (!looks_valid && lenient_) {
+                Core::Logger::log(
+                    Core::Logger::Level::WARN,
+                    id_, " (ignored garbage): ", Core::Utils::truncate(s)
                 );
                 timeout = std::max(
                     Core::Constants::MIN_TURN_TIMEOUT_MS,
@@ -81,7 +116,9 @@ namespace Arena::Game {
     }
 
     bool Player::is_message_or_debug(const std::string& s) {
-        return s.rfind("MESSAGE", 0) == 0 || s.rfind("DEBUG", 0) == 0;
+        return s.rfind("MESSAGE", 0) == 0 ||
+               s.rfind("DEBUG", 0) == 0 ||
+               s.find("Command not found") != std::string::npos;
     }
 
     void Player::extract_name(const std::string& s) {

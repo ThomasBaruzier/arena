@@ -1,72 +1,68 @@
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, FastForward } from 'lucide-react';
+import { ChevronLeft, ChevronRight, SkipBack, SkipForward } from 'lucide-react';
 
 export default function ControlDeck({
-  isPlaying,
-  setIsPlaying,
   setMoveIndex,
   totalMoves,
   moveIndex,
-  speed,
-  setSpeed
+  onSeekStart,
+  onSeekEnd,
+  onPlayInteraction,
+  isLive
 }) {
+  const handleSeek = (e) => setMoveIndex(Number(e.target.value));
+  const handleSeekEnd = (e) => onSeekEnd && onSeekEnd(Number(e.target.value));
+
+  const interact = (fn) => {
+    if (onPlayInteraction) onPlayInteraction();
+    fn();
+  };
+
+  const currentValue = isLive ? totalMoves : moveIndex;
+
   return (
-    <div className="control-deck">
-      <div className="deck-group playback">
-        <button
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex(0);
-          }}
-        >
-          <RotateCcw size={16} />
-        </button>
-        <button
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex((m) => Math.max(0, m - 1));
-          }}
-        >
-          <SkipBack size={16} />
-        </button>
-        <button
-          className="play-btn"
-          onClick={() => {
-            if (moveIndex >= totalMoves) setMoveIndex(0);
-            setIsPlaying(!isPlaying);
-          }}
-        >
-          {isPlaying ? (
-            <Pause size={20} fill="currentColor" />
-          ) : (
-            <Play size={20} fill="currentColor" />
-          )}
-        </button>
-        <button
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex((m) => Math.min(totalMoves, m + 1));
-          }}
-        >
-          <SkipForward size={16} />
-        </button>
-        <button
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex(totalMoves);
-          }}
-        >
-          <FastForward size={16} />
-        </button>
+    <div className={`control-deck ${isLive ? 'live' : ''}`}>
+      <button
+        className="deck-btn"
+        onClick={() => interact(() => setMoveIndex(0))}
+        disabled={moveIndex === 0}
+      >
+        <SkipBack size={18} />
+      </button>
+      <button
+        className="deck-btn"
+        onClick={() => interact(() => setMoveIndex((m) => Math.max(0, m - 1)))}
+        disabled={moveIndex === 0}
+      >
+        <ChevronLeft size={18} />
+      </button>
+
+      <div className="seek-container">
+        <input
+          type="range"
+          min="0"
+          max={totalMoves}
+          value={currentValue}
+          onPointerDown={onSeekStart}
+          onPointerUp={handleSeekEnd}
+          onChange={handleSeek}
+          className="integrated-seek"
+        />
       </div>
-      <div className="deck-sep" />
-      <div className="deck-group speed">
-        {[1, 2, 3].map((s) => (
-          <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)}>
-            {s}x
-          </button>
-        ))}
-      </div>
-      <div className="deck-info">Move: {moveIndex}</div>
+
+      <button
+        className="deck-btn"
+        onClick={() => interact(() => setMoveIndex((m) => Math.min(totalMoves, m + 1)))}
+        disabled={moveIndex === totalMoves}
+      >
+        <ChevronRight size={18} />
+      </button>
+      <button
+        className="deck-btn"
+        onClick={() => interact(() => setMoveIndex(totalMoves))}
+        disabled={moveIndex === totalMoves}
+      >
+        <SkipForward size={18} />
+      </button>
     </div>
   );
 }

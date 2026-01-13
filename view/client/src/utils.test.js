@@ -1,17 +1,35 @@
 import { describe, it, expect } from 'vitest';
 import { compareVersions, parseMoves, getWinningLine } from './utils';
 
-describe('compareVersions', () => {
-  it('compares versions correctly', () => {
+describe('compareVersions (Hero Priority)', () => {
+  it('prioritizes alphabetical order for different names', () => {
     expect(
-      compareVersions({ version: '2.0', name: 'a' }, { version: '1.0', name: 'b' })
+      compareVersions({ version: '1.0', name: 'A' }, { version: '1.0', name: 'B' })
     ).toBeGreaterThan(0);
+
     expect(
-      compareVersions({ version: '1.0', name: 'a' }, { version: '2.0', name: 'b' })
+      compareVersions({ version: '1.0', name: 'B' }, { version: '1.0', name: 'A' })
     ).toBeLessThan(0);
+  });
+
+  it('prioritizes higher version for same name', () => {
     expect(
-      compareVersions({ version: '1.0', name: 'a' }, { version: '1.0', name: 'b' })
+      compareVersions({ version: '2.0', name: 'Bot' }, { version: '1.0', name: 'Bot' })
+    ).toBeGreaterThan(0);
+
+    expect(
+      compareVersions({ version: '1.0', name: 'Bot' }, { version: '2.0', name: 'Bot' })
     ).toBeLessThan(0);
+
+    expect(compareVersions({ version: '1.0', name: 'Bot' }, { version: '1.0', name: 'Bot' })).toBe(
+      0
+    );
+  });
+
+  it('handles sub-versions correctly', () => {
+    expect(
+      compareVersions({ version: '1.10', name: 'Bot' }, { version: '1.2', name: 'Bot' })
+    ).toBeGreaterThan(0);
   });
 });
 

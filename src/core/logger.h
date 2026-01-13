@@ -12,6 +12,7 @@ namespace Arena::Core {
         enum class Level { DEBUG, INFO, WARN, ERROR };
 
         static void set_level(Level level) { get().level_ = level; }
+        static bool is_debug() { return get().level_ == Level::DEBUG; }
 
         template<typename... Args>
         static void log(Level level, Args... args) {

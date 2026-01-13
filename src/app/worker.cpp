@@ -31,14 +31,16 @@ static void populate_event_stats(
 {
     e.p1_elo = stats.p1_elo;
     e.p2_elo = stats.p2_elo;
-    e.p1_dqi = Stats::Tracker::calc_dqi(stats.p1_sum_weighted_sq_err, stats.p1_sum_weights);
-    e.p2_dqi = Stats::Tracker::calc_dqi(stats.p2_sum_weighted_sq_err, stats.p2_sum_weights);
-    e.p1_cma = Stats::Tracker::calc_cma(stats.p1_critical_success, stats.p1_critical_total);
-    e.p2_cma = Stats::Tracker::calc_cma(stats.p2_critical_success, stats.p2_critical_total);
-    e.p1_blunder = Stats::Tracker::calc_severe(stats.p1_severe_errors, stats.p1_moves_analyzed);
-    e.p2_blunder = Stats::Tracker::calc_severe(stats.p2_severe_errors, stats.p2_moves_analyzed);
-    e.p1_crashes = stats.p1_crashes;
-    e.p2_crashes = stats.p2_crashes;
+    e.p1_erf = stats.get_p1_erf();
+    e.p2_erf = stats.get_p2_erf();
+    e.p1_time = stats.p1_total_time_ms.load();
+    e.p2_time = stats.p2_total_time_ms.load();
+    e.p1_crashes = stats.p1_crashes.load();
+    e.p2_crashes = stats.p2_crashes.load();
+    e.p1_cma = stats.get_p1_cma();
+    e.p2_cma = stats.get_p2_cma();
+    e.p1_blunder = stats.get_p1_blunder();
+    e.p2_blunder = stats.get_p2_blunder();
 }
 
 static void populate_stats(
@@ -46,16 +48,18 @@ static void populate_stats(
 {
     if (p_num == 1) {
         js.add("elo", stats.p1_elo);
-        js.add("sw_dqi", Stats::Tracker::calc_dqi(stats.p1_sum_weighted_sq_err, stats.p1_sum_weights));
-        js.add("cma", Stats::Tracker::calc_cma(stats.p1_critical_success, stats.p1_critical_total));
-        js.add("blunder", Stats::Tracker::calc_severe(stats.p1_severe_errors, stats.p1_moves_analyzed));
+        js.add("erf", stats.get_p1_erf());
+        js.add("time", stats.p1_total_time_ms.load());
         js.add("crashes", stats.p1_crashes.load());
+        js.add("cma", stats.get_p1_cma());
+        js.add("blunder", stats.get_p1_blunder());
     } else {
         js.add("elo", stats.p2_elo);
-        js.add("sw_dqi", Stats::Tracker::calc_dqi(stats.p2_sum_weighted_sq_err, stats.p2_sum_weights));
-        js.add("cma", Stats::Tracker::calc_cma(stats.p2_critical_success, stats.p2_critical_total));
-        js.add("blunder", Stats::Tracker::calc_severe(stats.p2_severe_errors, stats.p2_moves_analyzed));
+        js.add("erf", stats.get_p2_erf());
+        js.add("time", stats.p2_total_time_ms.load());
         js.add("crashes", stats.p2_crashes.load());
+        js.add("cma", stats.get_p2_cma());
+        js.add("blunder", stats.get_p2_blunder());
     }
 }
 
@@ -64,10 +68,7 @@ std::string format_ndjson_line(
     const Core::RunSpec& rs,
     const MatchState& state,
     const Stats::Tracker& stats,
-    double duration,
-    double arena_load,
-    double p1_efficiency,
-    double p2_efficiency
+    double duration
 ) {
     Net::JsonStream js;
     js.add_str("p1_cmd", bc.p1_cmd);
@@ -82,9 +83,6 @@ std::string format_ndjson_line(
     if (rs.seed) js.add("seed", *rs.seed);
     else js.add_null("seed");
     js.add("duration", duration);
-    js.add("arena_load", arena_load);
-    js.add("p1_efficiency", p1_efficiency);
-    js.add("p2_efficiency", p2_efficiency);
     js.add("wins", state.wins);
     js.add("losses", state.losses);
     js.add("draws", state.draws);
@@ -116,19 +114,6 @@ static void finalize_run(
         long run_wall = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - ctx->run_start
         ).count();
-        auto proc_cpu = Sys::CpuMonitor::get_times(getpid());
-        double load = Sys::CpuMonitor::calculate_load(
-            ctx->run_start_cpu, proc_cpu, run_wall
-        );
-
-        double p1_efficiency = 0.0;
-        double p2_efficiency = 0.0;
-        if (ctx->total_p1_wall > 0) p1_efficiency =
-            (double)ctx->total_p1_cpu * 100.0 /
-            static_cast<double>(ctx->total_p1_wall);
-        if (ctx->total_p2_wall > 0) p2_efficiency =
-            (double)ctx->total_p2_cpu * 100.0 /
-            static_cast<double>(ctx->total_p2_wall);
 
         if (api) {
             Net::ApiManager::Event e;
@@ -141,9 +126,6 @@ static void finalize_run(
                 e.draws = ctx->match_state.draws;
             }
             e.wall_time_ms = ctx->total_wall_time_ms;
-            e.arena_load = load;
-            e.p1_efficiency = p1_efficiency;
-            e.p2_efficiency = p2_efficiency;
 
             {
                 std::lock_guard<std::mutex> l(ctx->stats.mtx);
@@ -156,13 +138,15 @@ static void finalize_run(
             std::lock_guard<std::mutex> l(ndjson_mtx);
             ndjson_out << format_ndjson_line(
                 bc, ctx->run_spec, ctx->match_state, ctx->stats,
-                (double)run_wall / 1000.0, load, p1_efficiency, p2_efficiency
+                (double)run_wall / 1000.0
             ) << std::endl;
         }
 
         Core::Logger::log(
              Core::Logger::Level::INFO,
-             "Run ", ctx->config_label, " finished (ID: ", ctx->id, ")"
+             "Run ", ctx->id, " Finished (", ctx->config_label, ") ",
+             "N1=", ctx->run_spec.p1_nodes, " N2=", ctx->run_spec.p2_nodes,
+             " pairs=", ctx->run_spec.min_pairs, "-", ctx->run_spec.max_pairs
         );
         ctx->stats.print();
     });
@@ -209,8 +193,6 @@ static TaskResult fetch_next_task(WorkerState& ws, int thread_limit) {
             int pair, int leg, double p1_score, long wall_ms, long, long
         ) {
             if (!ctx) return;
-            if (p1_score >= 0)
-                ctx->stats.update_elo(leg == 0 ? p1_score : (1.0 - p1_score));
             ctx->total_wall_time_ms += wall_ms;
 
             {
@@ -231,6 +213,10 @@ static TaskResult fetch_next_task(WorkerState& ws, int thread_limit) {
                 {
                     ctx->match_state.pairs_done++;
                     update_pair_outcome(ctx->match_state, res.first, res.second);
+
+                    double pair_score_p1 = res.first + (1.0 - res.second);
+                    ctx->stats.update_pair_stats(pair_score_p1 / 2.0);
+
                     ctx->match_state.cv.notify_one();
 
                     if (Stats::SPRT::check(ctx->match_state, ctx->cfg))
@@ -252,22 +238,6 @@ static TaskResult fetch_next_task(WorkerState& ws, int thread_limit) {
                 }
 
                 e.wall_time_ms = ctx->total_wall_time_ms;
-
-                auto now = std::chrono::steady_clock::now();
-                long run_wall = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - ctx->run_start
-                ).count();
-                auto proc_cpu = Sys::CpuMonitor::get_times(getpid());
-                e.arena_load = Sys::CpuMonitor::calculate_load(
-                    ctx->run_start_cpu, proc_cpu, run_wall
-                );
-
-                if (ctx->total_p1_wall > 0) e.p1_efficiency =
-                    (double)ctx->total_p1_cpu * 100.0 /
-                    static_cast<double>(ctx->total_p1_wall);
-                if (ctx->total_p2_wall > 0) e.p2_efficiency =
-                    (double)ctx->total_p2_cpu * 100.0 /
-                    static_cast<double>(ctx->total_p2_wall);
 
                 {
                     std::lock_guard<std::mutex> lock(ctx->stats.mtx);
@@ -321,7 +291,6 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
             if (!eval) continue;
 
             auto& job = *task.eval;
-            bool debug = job.context->cfg.debug;
             int board_size = job.context->cfg.board_size;
 
             uint64_t h = Analysis::GlobalCache::hash(job.moves, board_size);
@@ -331,7 +300,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
 
             if (cached) {
                 m = *cached;
-                if (debug) {
+                if (Core::Logger::is_debug()) {
                     Core::Logger::log(
                         Core::Logger::Level::DEBUG,
                         "[CACHE HIT] Move ", job.moves.size(), " hash=", h
@@ -339,7 +308,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
                 }
             } else {
 
-                if (debug) {
+                if (Core::Logger::is_debug()) {
                     Core::Logger::log(
                         Core::Logger::Level::DEBUG,
                         "[CACHE MISS] Move ", job.moves.size(), " hash=", h
@@ -347,7 +316,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
                 }
 
                 Sys::CpuMonitor::Times cpu_start{0, 0};
-                if (debug && eval)
+                if (Core::Logger::is_debug() && eval)
                     cpu_start = Sys::CpuMonitor::get_times(eval->pid());
 
                 auto t0 = std::chrono::steady_clock::now();
@@ -359,7 +328,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
 
                 Analysis::GlobalCache::set(h, m);
 
-                if (debug && eval) {
+                if (Core::Logger::is_debug() && eval) {
                     long wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         t1 - t0
                     ).count();
@@ -378,7 +347,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
             }
 
             if (m.p_best < Core::Constants::GARBAGE_TIME_PROB_THRESHOLD) {
-                if (debug) {
+                if (Core::Logger::is_debug()) {
                     Core::Logger::log(
                         Core::Logger::Level::DEBUG,
                         "Move ", job.moves.size(), " SKIPPED (Garbage Time p_best=",
@@ -389,7 +358,7 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
                 double regret = std::max(0.0, m.p_best - m.p_played);
                 double sharpness = std::max(0.0, m.p_best - m.p_second);
 
-                if (debug) {
+                if (Core::Logger::is_debug()) {
                     Core::Logger::log(
                         Core::Logger::Level::DEBUG,
                         "Move ", job.moves.size(), " P", job.bot_id,

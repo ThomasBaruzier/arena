@@ -1,6 +1,7 @@
 #include "evaluator.h"
 #include "../core/constants.h"
 #include "../core/logger.h"
+#include "../core/utils.h"
 #include "../sys/signals.h"
 #include <regex>
 #include <sstream>
@@ -97,9 +98,10 @@ Stats::EvalMetrics Evaluator::eval(
 }
 
 void Evaluator::send_cmd(const std::string& cmd) {
-    if (debug_) {
+    if (Core::Logger::is_debug()) {
         Core::Logger::log(
-            Core::Logger::Level::DEBUG, "-> EVAL: ", cmd
+            Core::Logger::Level::DEBUG, "-> EVAL (", cmd.size(), "B): ",
+            Core::Utils::truncate(cmd)
         );
     }
     proc_->write_line(cmd);
@@ -123,8 +125,12 @@ Stats::EvalMetrics Evaluator::parse_eval_response() {
     std::smatch m;
 
     while (auto l = proc_->read_line(cutoff_, nullptr)) {
-        if (debug_)
-            Core::Logger::log(Core::Logger::Level::DEBUG, "<- EVAL: ", *l);
+        if (Core::Logger::is_debug()) {
+            Core::Logger::log(
+                Core::Logger::Level::DEBUG, "<- EVAL (", l->size(), "B): ",
+                Core::Utils::truncate(*l)
+            );
+        }
         if (std::regex_search(*l, m, eval_re)) {
             Stats::EvalMetrics res;
             res.p_best = std::stod(m[1]);

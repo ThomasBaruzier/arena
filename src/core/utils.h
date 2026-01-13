@@ -11,6 +11,11 @@
 
 namespace Arena::Core::Utils {
 
+    inline std::string truncate(const std::string& s, size_t max_len = 64) {
+        if (s.length() <= max_len) return s;
+        return s.substr(0, max_len) + "...";
+    }
+
     inline std::string json_escape(const std::string& s) {
         std::stringstream ss;
         for (char c : s) {

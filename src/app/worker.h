@@ -30,7 +30,6 @@ namespace Arena::App {
 
     std::string format_ndjson_line(
         const Core::BatchConfig& bc, const Core::RunSpec& rs, const MatchState& state,
-        const Stats::Tracker& stats, double duration, double arena_load,
-        double p1_efficiency, double p2_efficiency
+        const Stats::Tracker& stats, double duration
     );
 }

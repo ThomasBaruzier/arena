@@ -6,7 +6,7 @@ High-performance, multithreaded tournament runner for gomoku engines, featuring 
 
 * Multithreaded execution with configurable worker pool
 * Elo rating and SPRT (sequential probability ratio test)
-* Detailed quality metrics (decision quality index, critical move accuracy)
+* Detailed quality metrics (critical move accuracy, blunder rate)
 * Batch processing for massive tournaments
 * Live web interface via docker
 * Ndjson export for external analysis
@@ -19,13 +19,16 @@ High-performance, multithreaded tournament runner for gomoku engines, featuring 
 
 ## Quick start
 
-1. Build the project
+1. Build the arena binary
    `make`
 
-2. Run a simple match
+2. Build the reference engine (optional)
+   `make engine`
+
+3. Run a simple match
    `./arena -1 ./bots/pbrain-p1 -2 ./bots/pbrain-p2`
 
-3. Start the web viewer
+4. Start the web viewer
    `make view-prod`
    Access the interface at http://localhost:3000
 

@@ -22,6 +22,7 @@ namespace Arena::Core {
         int timeout_cutoff = 0;
         int timeout_game = 0;
         uint64_t max_nodes = 0;
+        bool lenient = false;
 
         void calculate_timeout(const std::string& bot_name) {
             if (timeout_cutoff != 0) return;
@@ -61,6 +62,7 @@ namespace Arena::Core {
         int eval_timeout_cutoff = Constants::DEFAULT_EVAL_CUTOFF_MS;
 
         long long p1_memory = 0, p2_memory = 0;
+        bool p1_lenient = false, p2_lenient = false;
 
         std::vector<uint64_t> common_nodes_list;
         std::vector<uint64_t> p1_nodes_list, p2_nodes_list, eval_nodes_list;
@@ -74,6 +76,7 @@ namespace Arena::Core {
         std::string export_results;
         bool debug = false, show_board = false;
         bool cleanup = false, exit_on_crash = false;
+        bool force_board = false;
     };
 
     struct Config {
@@ -93,6 +96,7 @@ namespace Arena::Core {
         bool show_board = false;
         bool cleanup = false;
         bool exit_on_crash = false;
+        bool force_board = false;
         std::string api_url, api_key;
         int debounce_ms = 0;
         uint64_t eval_max_nodes = Constants::DEFAULT_EVAL_NODES;

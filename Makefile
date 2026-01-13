@@ -42,7 +42,7 @@ DEPS            := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(COV_OBJS:.o=.d)
 
 .PHONY: all clean fclean re engine test cov coverage view-dev view-prod
 
-all: $(NAME) engine
+all: $(NAME)
 
 $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $(NAME) $(LDFLAGS)

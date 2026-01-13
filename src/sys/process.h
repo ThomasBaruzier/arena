@@ -38,7 +38,7 @@ protected:
 private:
     void start_child_process(
         int in[2], int out[2], long long mem_bytes,
-        char** argv, char** envp
+        char** argv, char** envp, const char* path
     );
     void send_end_signal();
     void wait_or_kill();
@@ -48,6 +48,7 @@ private:
     std::string reap_exit_status();
     void read_available_data(int timeout_ms);
     static std::string decode_exit_status(int status);
+    static std::string resolve_path(const std::string& file);
 
     std::string cmd_;
     std::string buf_;

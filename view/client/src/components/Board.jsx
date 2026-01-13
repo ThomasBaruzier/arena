@@ -1,15 +1,33 @@
-import { useMemo, memo } from 'react';
+import { useMemo, memo, useState, useEffect } from 'react';
 import { BOARD_SIZE, getWinningLine } from '../utils';
 
-const Board = memo(function Board({ parsedMoves, moveIndex, winnerColor, isPlaying }) {
-  const boardState = useMemo(() => {
-    const map = new Map();
-    for (let i = 0; i < moveIndex && parsedMoves[i]; i++) {
-      map.set(`${parsedMoves[i].x},${parsedMoves[i].y}`, parsedMoves[i].c);
-    }
-    return map;
-  }, [parsedMoves, moveIndex]);
+const Stone = memo(function Stone({ x, y, c, isVisible, isLast, isOpening }) {
+  const [isReady, setIsReady] = useState(false);
 
+  useEffect(() => {
+    const timer = requestAnimationFrame(() => setIsReady(true));
+    return () => cancelAnimationFrame(timer);
+  }, []);
+
+  const show = isVisible && isReady;
+
+  return (
+    <div
+      className={`stone-layer ${c === 1 ? 'black' : 'white'} ${show ? 'visible' : ''} ${isLast ? 'last' : ''} ${isOpening ? 'stone-opening' : ''}`}
+      style={{ left: `${x * 5}%`, top: `${y * 5}%` }}
+      data-testid={`stone-${x}-${y}`}
+    />
+  );
+});
+
+const Board = memo(function Board({
+  parsedMoves,
+  moveIndex,
+  winnerColor,
+  isPlaying,
+  openingLen = 0,
+  isExiting
+}) {
   const winningLine = useMemo(
     () => (moveIndex >= parsedMoves.length ? getWinningLine(parsedMoves, winnerColor) : []),
     [winnerColor, moveIndex, parsedMoves]
@@ -33,16 +51,19 @@ const Board = memo(function Board({ parsedMoves, moveIndex, winnerColor, isPlayi
               </div>
             );
           })}
-          {[...boardState].map(([k, c]) => {
-            const [x, y] = k.split(',').map(Number);
-            const last = parsedMoves[moveIndex - 1];
-            const isLast = !isPlaying && last?.x === x && last?.y === y;
+          {parsedMoves.map((move, i) => {
+            const isVisible = !isExiting && i < moveIndex;
+            const isLast = i === moveIndex - 1 && !isPlaying;
+            const isOpening = i < openingLen;
             return (
-              <div
-                key={k}
-                className={`stone-layer ${c === 1 ? 'black' : 'white'} ${isLast ? 'last' : ''}`}
-                style={{ left: `${x * 5}%`, top: `${y * 5}%` }}
-                data-testid={`stone-${x}-${y}`}
+              <Stone
+                key={`${move.x}-${move.y}-${i}`}
+                x={move.x}
+                y={move.y}
+                c={move.c}
+                isVisible={isVisible}
+                isLast={isLast}
+                isOpening={isOpening}
               />
             );
           })}

@@ -17,9 +17,11 @@ namespace Arena::Game {
         std::string name() const { return name_; }
         std::string version() const { return version_; }
         pid_t pid() const { return proc_->pid(); }
+        std::string path() const { return path_; }
         void send(const std::string& cmd);
         std::string read(int timeout, long& elapsed);
         void meta();
+        void set_lenient(bool l) { lenient_ = l; }
 
     private:
         bool is_message_or_debug(const std::string& s);
@@ -28,5 +30,6 @@ namespace Arena::Game {
 
         std::unique_ptr<Sys::Process> proc_;
         std::string id_, name_, path_, version_;
+        bool lenient_ = false;
     };
 }

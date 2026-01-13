@@ -24,13 +24,6 @@ Used for early termination of matches when the result is statistically significa
 
 When an evaluator is used, the arena computes objective quality metrics.
 
-### Sw-dqi (sharpness-weighted decision quality index)
-A score from 0 to 100 representing move quality, heavily penalizing mistakes in sharp positions.
-
-* `regret`: difference between best move score and played move score.
-* `sharpness`: difference between best move score and second best move score.
-* `weight`: `1 + 10 * sharpness^2`
-
 ### Cma (critical move accuracy)
 Percentage of correct moves played in critical positions.
 

@@ -1,8 +1,10 @@
 #include "referee.h"
 #include "rules.h"
 #include "../core/logger.h"
+#include "../core/utils.h"
 #include "../sys/cpu_monitor.h"
 #include "../sys/signals.h"
+#include <iomanip>
 
 namespace Arena::Game {
 
@@ -23,7 +25,8 @@ Referee::Referee(
 
 Referee::~Referee() {
     if (start_sent_ && !result_sent_) {
-        try { send_result_event(0.5); } catch (...) {}
+        double res = Sys::g_stop_flag ? -1.0 : 0.5;
+        try { send_result_event(res); } catch (...) {}
     }
     pl1_.stop();
     pl2_.stop();
@@ -54,10 +57,11 @@ Referee::Status Referee::step(std::vector<Core::Point>& out_history) {
             throw Core::MatchTerminated();
         }
         Core::PlayerColor loser = current_player();
+        stats_.add_crash(loser == Core::PlayerColor::BLACK ? 1 : 2);
         finish(loser == Core::PlayerColor::BLACK ? 0.0 : 1.0);
         return Status::FINISHED;
     } catch (const Core::MatchTerminated&) {
-        if (state_ == State::INITIALIZED) finish(0.5);
+        if (state_ == State::INITIALIZED) finish(-1.0);
         else { pl1_.stop(); pl2_.stop(); }
         throw;
     } catch (const std::exception& e) {
@@ -97,7 +101,6 @@ Core::PlayerColor Referee::current_player() const {
 
 void Referee::initialize_game(std::vector<Core::Point>& out_history) {
     state_ = State::INITIALIZED;
-    if (auto ctx = p_.context) send_run_start_event_if_needed(ctx);
 
     std::map<std::string, std::string> env_vars;
     if (p_.seed) env_vars["GOMOKU_SEED"] = std::to_string(*p_.seed);
@@ -117,6 +120,11 @@ void Referee::initialize_game(std::vector<Core::Point>& out_history) {
 
     pl1_.meta();
     pl2_.meta();
+    pl1_.set_lenient(p_.p1_cfg.lenient);
+    pl2_.set_lenient(p_.p2_cfg.lenient);
+
+    if (auto ctx = p_.context) send_run_start_event_if_needed(ctx);
+
     send_start_event();
     init_player(pl1_, p_.p1_cfg);
     init_player(pl2_, p_.p2_cfg);
@@ -193,15 +201,15 @@ bool Referee::play_turn(std::vector<Core::Point>& out_history) {
 
     if (c == Core::PlayerColor::BLACK) {
         p1_cpu_ms_ += cpu_delta;
+        p1_wall_ms_ += el;
         if (p_.context) {
-            p_.context->total_p1_cpu += cpu_delta;
-            p_.context->total_p1_wall += el;
+            stats_.p1_total_time_ms += el;
         }
     } else {
         p2_cpu_ms_ += cpu_delta;
+        p2_wall_ms_ += el;
         if (p_.context) {
-            p_.context->total_p2_cpu += cpu_delta;
-            p_.context->total_p2_wall += el;
+            stats_.p2_total_time_ms += el;
         }
     }
 
@@ -241,21 +249,62 @@ void Referee::finish(double res) {
     pl1_.stop();
     pl2_.stop();
 
-    Core::Logger::log(
-        Core::Logger::Level::INFO,
-        "Peak Memory: P1=", pl1_.peak_mem(),
-        "KB P2=", pl2_.peak_mem(), "KB"
-    );
-
-    send_result_event(res);
-    auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    long wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - wall_start_
     ).count();
+
+    bool p1_is_black = (p_.leg == 0);
+    auto& bot1 = p1_is_black ? pl1_ : pl2_;
+    auto& bot2 = p1_is_black ? pl2_ : pl1_;
+
+    double s1 = p1_is_black ? res : 1.0 - res;
+    double s2 = 1.0 - s1;
+    long t1 = p1_is_black ? p1_wall_ms_ : p2_wall_ms_;
+    long t2 = p1_is_black ? p2_wall_ms_ : p1_wall_ms_;
+    long mem1 = bot1.peak_mem();
+    long mem2 = bot2.peak_mem();
+
+    auto fmt_res = [](double s, long t, long m_kb) {
+        std::stringstream ss;
+        double mb = m_kb / 1024.0;
+        if (s < 0) ss << "(crash)";
+        else ss << "(" << (s > 0.9 ? "win" : s < 0.1 ? "lose" : "draw")
+           << ", " << std::fixed << std::setprecision(1) << (t / 1000.0) << "s, "
+           << std::setprecision(2) << mb << "MB)";
+        return ss.str();
+    };
+
+    {
+        std::lock_guard<std::mutex> l(stats_.mtx);
+
+        std::stringstream ss;
+        ss << "Game " << p_.pair << "/" << p_.config().max_pairs
+           << " | " << bot1.name() << " " << bot1.version()
+           << " " << fmt_res(s1, t1, mem1)
+           << " vs " << bot2.name() << " " << bot2.version()
+           << " " << fmt_res(s2, t2, mem2)
+           << " | Elo: " << stats_.p1_elo << "-" << stats_.p2_elo
+           << " | P1 -> +" << stats_.p1_pair_wins
+           << " -" << stats_.p1_pair_losses
+           << " =" << stats_.p1_pair_draws;
+
+        if (stats_.p1_moves_analyzed > 0 || stats_.p2_moves_analyzed > 0) {
+            ss << " | CMA:" << std::fixed << std::setprecision(1) << stats_.get_p1_cma() << "%"
+               << " vs " << stats_.get_p2_cma() << "%";
+        }
+
+        ss << " | Z:" << std::fixed << std::setprecision(2) << stats_.get_p1_z()
+           << " ERF:" << std::setprecision(1) << stats_.get_p1_erf() << "%";
+
+        Core::Logger::log(Core::Logger::Level::INFO, ss.str());
+    }
+
+    send_result_event(res, wall_ms);
     cb_(p_.pair, p_.leg, res, wall_ms, p1_cpu_ms_, p2_cpu_ms_);
 }
 
 void Referee::send_turn_command(Player* cp) {
-    if (moves_ <= (int)p_.opening.size() + 1) {
+    if (p_.config().force_board || moves_ <= (int)p_.opening.size() + 1) {
         if (moves_ > 0) send_board_state(cp);
         else cp->send("BEGIN");
     } else {
@@ -337,6 +386,7 @@ void Referee::send_start_event() {
     e.p1_name = pl1_.name(); e.p1v = pl1_.version();
     e.p2_name = pl2_.name(); e.p2v = pl2_.version();
     e.run_id = p_.run_id; e.black_is_p1 = true;
+    e.op_len = get_opening_size();
     api_->enqueue(e);
     start_sent_ = true;
 }
@@ -348,7 +398,7 @@ void Referee::send_move_event(const Core::Point& m, int color) {
     api_->enqueue(e);
 }
 
-void Referee::send_result_event(double res) {
+void Referee::send_result_event(double res, long duration) {
     if (!api_ || !start_sent_) return;
     std::stringstream ss;
     for (size_t i = 0; i < hist_.size(); ++i) {
@@ -357,7 +407,9 @@ void Referee::send_result_event(double res) {
     }
     auto e = create_event("result");
     e.moves = ss.str();
-    e.winner = (res == 1.0) ? 1 : (res == 0.0) ? 2 : 3;
+    e.winner = (res == 1.0) ? 1 : (res == 0.0) ? 2 : (res == -1.0) ? 4 : 3;
+    e.op_len = get_opening_size();
+    e.duration = duration;
     api_->enqueue(e);
 }
 

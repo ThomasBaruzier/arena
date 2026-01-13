@@ -8,7 +8,8 @@
 namespace Arena::Net {
 
 ApiManager::ApiManager(std::string url, std::string key, int debounce) :
-    url_(std::move(url)), key_(std::move(key)), debounce_(debounce)
+    url_(std::move(url)), key_(std::move(key)), debounce_(debounce),
+    buffer_(BUFFER_SIZE)
 {
     sess_ = generate_session_id();
 }
@@ -23,16 +24,15 @@ void ApiManager::stop() {
 }
 
 void ApiManager::enqueue(Event e) {
-    std::lock_guard<std::mutex> l(mtx_);
-    if (q_.size() >= Core::Constants::API_QUEUE_MAX) {
-        Core::Logger::log(
-            Core::Logger::Level::WARN,
-            "API queue full, dropping event"
-        );
-        return;
+    std::unique_lock<std::mutex> l(mtx_);
+    while (count_ >= BUFFER_SIZE) {
+        cv_produce_.wait(l);
     }
-    q_.push_back(std::move(e));
-    cv_.notify_one();
+
+    buffer_[tail_] = std::move(e);
+    tail_ = (tail_ + 1) % BUFFER_SIZE;
+    count_++;
+    cv_consume_.notify_one();
 }
 
 void ApiManager::reset() {
@@ -82,11 +82,16 @@ std::string ApiManager::generate_session_id() {
 }
 
 void ApiManager::enqueue_shutdown() {
-    std::lock_guard<std::mutex> l(mtx_);
+    std::unique_lock<std::mutex> l(mtx_);
+    while (count_ >= BUFFER_SIZE) {
+        cv_produce_.wait(l);
+    }
     Event e;
     e.shutdown = true;
-    q_.push_back(e);
-    cv_.notify_one();
+    buffer_[tail_] = e;
+    tail_ = (tail_ + 1) % BUFFER_SIZE;
+    count_++;
+    cv_consume_.notify_one();
 }
 
 void ApiManager::loop() {
@@ -112,84 +117,79 @@ void ApiManager::loop() {
 
     auto last_send_time = std::chrono::steady_clock::now();
     int backoff_sec = Core::Constants::API_BACKOFF_MIN_SEC;
-    int shutdown_retries = 0;
-    bool in_shutdown = false;
 
     while (true) {
-        auto [batch, shutdown] = collect_batch(last_send_time, in_shutdown);
-        if (shutdown && !in_shutdown) {
-            in_shutdown = true;
-            shutdown_retries = Core::Constants::API_SHUTDOWN_MAX_RETRIES;
+        auto [batch, is_shutdown_next] = peek_batch(last_send_time);
+
+        if (is_shutdown_next && batch.empty()) {
+            commit_batch(1);
+            break;
         }
 
         if (batch.empty()) {
-            if (shutdown || in_shutdown) break;
             continue;
         }
 
-        if (send_batch(c.get(), batch, in_shutdown)) {
+        if (send_batch(c.get(), batch)) {
+            commit_batch(batch.size());
             backoff_sec = Core::Constants::API_BACKOFF_MIN_SEC;
             last_send_time = std::chrono::steady_clock::now();
-            continue;
-        }
-
-        if (!in_shutdown) {
-            std::lock_guard<std::mutex> l(mtx_);
-            for (auto it = batch.rbegin(); it != batch.rend(); ++it)
-                q_.push_front(std::move(*it));
+        } else {
             std::this_thread::sleep_for(std::chrono::seconds(backoff_sec));
             backoff_sec = std::min(
                 Core::Constants::API_BACKOFF_MAX_SEC, backoff_sec + 2
             );
-            continue;
         }
-
-        if (--shutdown_retries <= 0) break;
-        std::this_thread::sleep_for(
-            std::chrono::seconds(Core::Constants::API_SHUTDOWN_BACKOFF_SEC)
-        );
     }
     curl_slist_free_all(h);
 }
 
-std::pair<std::vector<ApiManager::Event>, bool> ApiManager::collect_batch(
-    std::chrono::steady_clock::time_point last_send_time, bool in_shutdown
+std::pair<std::vector<ApiManager::Event>, bool> ApiManager::peek_batch(
+    std::chrono::steady_clock::time_point& last_send_time
 ) {
     std::vector<Event> batch;
-    bool shutdown = false;
     std::unique_lock<std::mutex> l(mtx_);
 
-    if (!in_shutdown) {
-        auto next_send_time = last_send_time +
-            std::chrono::milliseconds(debounce_);
-        while (q_.empty() || q_.size() < Core::Constants::API_QUEUE_MAX) {
-            if (q_.empty()) {
-                cv_.wait_until(l, next_send_time);
-            } else {
-                auto now = std::chrono::steady_clock::now();
-                if (now >= next_send_time) break;
-                cv_.wait_until(l, next_send_time);
-            }
-            auto now = std::chrono::steady_clock::now();
-            if (now >= next_send_time ||
-                (!q_.empty() && q_.front().shutdown)
-            ) break;
-        }
+    auto next_send_time = last_send_time + std::chrono::milliseconds(debounce_);
+
+    while (true) {
+        bool has_enough = count_ >= 50;
+        bool time_up = std::chrono::steady_clock::now() >= next_send_time;
+        bool has_shutdown = count_ > 0 && buffer_[head_].shutdown;
+
+        if (has_enough || time_up || has_shutdown) break;
+
+        cv_consume_.wait_until(l, next_send_time);
     }
 
-    while (!q_.empty()) {
-        if (q_.front().shutdown) {
-            shutdown = true;
-            break;
-        }
-        batch.push_back(std::move(q_.front()));
-        q_.pop_front();
+    if (count_ == 0) return {batch, false};
+
+    if (buffer_[head_].shutdown) {
+        return {batch, true};
     }
-    return {batch, shutdown};
+
+    size_t idx = head_;
+    size_t items = 0;
+
+    while (items < count_ && items < 100) {
+        if (buffer_[idx].shutdown) break;
+        batch.push_back(buffer_[idx]);
+        idx = (idx + 1) % BUFFER_SIZE;
+        items++;
+    }
+
+    return {batch, false};
+}
+
+void ApiManager::commit_batch(size_t n) {
+    std::lock_guard<std::mutex> l(mtx_);
+    head_ = (head_ + n) % BUFFER_SIZE;
+    count_ -= n;
+    cv_produce_.notify_all();
 }
 
 bool ApiManager::send_batch(
-    CURL* c, const std::vector<Event>& batch, bool in_shutdown
+    CURL* c, const std::vector<Event>& batch
 ) {
     std::string body = build_json_payload(batch);
     curl_easy_setopt(c, CURLOPT_URL, (url_ + "/api/batch").c_str());
@@ -205,10 +205,11 @@ bool ApiManager::send_batch(
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
 
     if (res != CURLE_OK || http_code >= 400) {
-        auto level = in_shutdown
-            ? Core::Logger::Level::WARN
-            : Core::Logger::Level::ERROR;
-        Core::Logger::log(level, "API Request failed. Code: ", http_code);
+        Core::Logger::log(
+            Core::Logger::Level::ERROR,
+            "API Request failed. Code: ", http_code, " Error: ",
+            curl_easy_strerror(res)
+        );
         return false;
     }
     return true;
@@ -253,19 +254,18 @@ std::string ApiManager::build_event_json(const Event& e) {
         js.add("losses", e.losses);
         js.add("draws", e.draws);
         js.add("wall_time_ms", e.wall_time_ms);
-        js.add("arena_load", e.arena_load);
-        js.add("p1_efficiency", e.p1_efficiency);
-        js.add("p2_efficiency", e.p2_efficiency);
         js.add("p1_elo", e.p1_elo);
-        js.add("p1_dqi", e.p1_dqi);
+        js.add("p1_erf", e.p1_erf);
+        js.add("p1_time", e.p1_time);
+        js.add("p1_crashes", e.p1_crashes);
         js.add("p1_cma", e.p1_cma);
         js.add("p1_blunder", e.p1_blunder);
-        js.add("p1_crashes", e.p1_crashes);
         js.add("p2_elo", e.p2_elo);
-        js.add("p2_dqi", e.p2_dqi);
+        js.add("p2_erf", e.p2_erf);
+        js.add("p2_time", e.p2_time);
+        js.add("p2_crashes", e.p2_crashes);
         js.add("p2_cma", e.p2_cma);
         js.add("p2_blunder", e.p2_blunder);
-        js.add("p2_crashes", e.p2_crashes);
         js.add("is_done", e.is_done ? "true" : "false");
     } else {
         js.add_str("type", e.type);
@@ -277,6 +277,7 @@ std::string ApiManager::build_event_json(const Event& e) {
             js.add_str("p2n", e.p2_name);
             js.add_str("p2v", e.p2v);
             js.add("black_is_p1", e.black_is_p1 ? "true" : "false");
+            js.add("op_len", e.op_len);
         } else if (e.type == "move") {
             js.add("x", e.x);
             js.add("y", e.y);
@@ -284,6 +285,8 @@ std::string ApiManager::build_event_json(const Event& e) {
         } else if (e.type == "result") {
             js.add("winner", e.winner);
             js.add_str("moves", e.moves);
+            js.add("op_len", e.op_len);
+            js.add("duration", e.duration);
         }
     }
     return js.str();

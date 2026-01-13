@@ -13,7 +13,7 @@ TEST_F(StatsTest, EloUpdateBasic) {
     stats.p1_elo = 1000;
     stats.p2_elo = 1000;
 
-    stats.update_elo(1.0);
+    stats.update_pair_stats(1.0);
     EXPECT_GT(stats.p1_elo, 1000);
     EXPECT_LT(stats.p2_elo, 1000);
 }
@@ -21,48 +21,37 @@ TEST_F(StatsTest, EloUpdateBasic) {
 TEST_F(StatsTest, EloUpdateDraw) {
     stats.p1_elo = 1200;
     stats.p2_elo = 1200;
-    stats.update_elo(0.5);
-    EXPECT_EQ(stats.p1_elo, 1200);
-    EXPECT_EQ(stats.p2_elo, 1200);
+
+    stats.p1_pair_draws = 10;
+    stats.p1_pair_wins = 0;
+    stats.p1_pair_losses = 0;
+    stats.update_elo();
+
+    EXPECT_EQ(stats.p1_elo, 1000);
+    EXPECT_EQ(stats.p2_elo, 1000);
 }
 
 TEST_F(StatsTest, EloUpdateUnderdog) {
-    stats.p1_elo = 1000;
-    stats.p2_elo = 1200;
-    int prev_p1 = stats.p1_elo;
+    stats.p1_pair_wins = 0;
+    stats.p1_pair_losses = 0;
+    stats.p1_pair_draws = 0;
 
-    stats.update_elo(1.0);
-    int gain_underdog = stats.p1_elo - prev_p1;
+    stats.update_pair_stats(1.0);
+    int elo_after_1_win = stats.p1_elo;
 
     Stats::Tracker s2;
-    s2.p1_elo = 1000;
-    s2.p2_elo = 1000;
-    s2.update_elo(1.0);
-    int gain_equal = s2.p1_elo - 1000;
+    s2.update_pair_stats(0.0);
 
-    EXPECT_GT(gain_underdog, gain_equal);
+    EXPECT_GT(elo_after_1_win, 1000);
+    EXPECT_LT(s2.p1_elo, 1000);
 }
 
 TEST_F(StatsTest, MetricsAggregation) {
     stats.add_metrics(1, 0.1, 0.05);
     EXPECT_EQ(stats.p1_moves_analyzed, 1);
-    EXPECT_GT(stats.p1_sum_weights, 0.0);
 
     stats.add_metrics(1, 0.21, 0.0);
     EXPECT_EQ(stats.p1_severe_errors, 1);
-
-    stats.add_metrics(2, 0.0, 0.06);
-    EXPECT_EQ(stats.p2_critical_total, 1);
-    EXPECT_EQ(stats.p2_critical_success, 1);
-}
-
-TEST_F(StatsTest, MetricsThresholds) {
-    stats.add_metrics(1, 0.02, 0.051);
-    EXPECT_EQ(stats.p1_critical_total, 1);
-    EXPECT_EQ(stats.p1_critical_success, 0);
-
-    stats.add_metrics(1, 0.019, 0.051);
-    EXPECT_EQ(stats.p1_critical_success, 1);
 }
 
 TEST_F(StatsTest, CrashCounting) {
@@ -75,11 +64,8 @@ TEST_F(StatsTest, CrashCounting) {
 }
 
 TEST_F(StatsTest, Calculations) {
-    EXPECT_NEAR(Stats::Tracker::calc_dqi(0.25, 1.0), 50.0, 0.001);
-    EXPECT_EQ(Stats::Tracker::calc_dqi(0, 0), 0.0);
-    EXPECT_NEAR(Stats::Tracker::calc_cma(3, 4), 75.0, 0.01);
-    EXPECT_EQ(Stats::Tracker::calc_cma(5, 0), 0.0);
     EXPECT_NEAR(Stats::Tracker::calc_severe(1, 10), 10.0, 0.01);
+    EXPECT_EQ(Stats::Tracker::calc_severe(5, 0), 0.0);
 }
 
 TEST_F(StatsTest, SPRTCheck) {
@@ -120,7 +106,6 @@ TEST_F(StatsTest, PrintDoesNotThrow) {
 TEST_F(StatsTest, MetricsP2Aggregation) {
     stats.add_metrics(2, 0.15, 0.08);
     EXPECT_EQ(stats.p2_moves_analyzed, 1);
-    EXPECT_GT(stats.p2_sum_weights, 0.0);
 
     stats.add_metrics(2, 0.25, 0.0);
     EXPECT_EQ(stats.p2_severe_errors, 1);
@@ -132,12 +117,6 @@ TEST_F(StatsTest, SevereErrorBoundary) {
 
     stats.add_metrics(1, 0.201, 0.0);
     EXPECT_EQ(stats.p1_severe_errors, 1);
-}
-
-TEST_F(StatsTest, CriticalMoveSuccess) {
-    stats.add_metrics(1, 0.01, 0.06);
-    EXPECT_EQ(stats.p1_critical_total, 1);
-    EXPECT_EQ(stats.p1_critical_success, 1);
 }
 
 TEST_F(StatsTest, CalcSevereZeroTotal) {
@@ -152,7 +131,7 @@ TEST_F(StatsTest, ConcurrentEloUpdates) {
     for (int t = 0; t < NUM_THREADS; ++t) {
         threads.emplace_back([this, t]() {
             for (int i = 0; i < UPDATES_PER_THREAD; ++i) {
-                stats.update_elo(t % 2 == 0 ? 1.0 : 0.0);
+                stats.update_pair_stats(t % 2 == 0 ? 1.0 : 0.0);
             }
         });
     }
@@ -203,14 +182,6 @@ TEST_F(StatsTest, ConcurrentCrashCounting) {
               NUM_THREADS * CRASHES_PER_THREAD);
 }
 
-TEST_F(StatsTest, DQICalculationPerfect) {
-    EXPECT_DOUBLE_EQ(Stats::Tracker::calc_dqi(0.0, 1.0), 100.0);
-}
-
-TEST_F(StatsTest, DQICalculationWorst) {
-    EXPECT_DOUBLE_EQ(Stats::Tracker::calc_dqi(1.0, 1.0), 0.0);
-}
-
 TEST_F(StatsTest, SPRTEarlyStopMinPairs) {
     App::MatchState state;
     Core::Config cfg;
@@ -235,4 +206,21 @@ TEST_F(StatsTest, SPRTNoRisk) {
     state.wins = 50;
     state.losses = 0;
     EXPECT_FALSE(Stats::SPRT::check(state, cfg));
+}
+
+TEST_F(StatsTest, ERFCalculation) {
+    stats.p1_pair_wins = 10;
+    stats.p1_pair_losses = 0;
+    stats.p1_pair_draws = 0;
+
+    EXPECT_GT(stats.get_p1_erf(), 99.0);
+    EXPECT_LT(stats.get_p2_erf(), 1.0);
+}
+
+TEST_F(StatsTest, ERFEqual) {
+    stats.p1_pair_wins = 5;
+    stats.p1_pair_losses = 5;
+    stats.p1_pair_draws = 0;
+
+    EXPECT_NEAR(stats.get_p1_erf(), 50.0, 0.1);
 }

@@ -45,6 +45,20 @@ describe('Gomoku API Integration', () => {
   });
 
   it('groups matchups and calculates stats correctly', async () => {
+    const runEvents = [
+      {
+        type: 'run_start',
+        run_id: 't1',
+        p1n: 'A',
+        p1v: '1.0',
+        p2n: 'B',
+        p2v: '1.0',
+        config_label: 'test',
+        total_games: 10
+      }
+    ];
+    await request(app).post('/api/batch').set('x-api-key', 'secret').send(runEvents).expect(200);
+
     const events = [
       {
         type: 'start',
@@ -65,7 +79,14 @@ describe('Gomoku API Integration', () => {
         p2n: 'A',
         p2v: '1.0'
       },
-      { type: 'result', external_id: 't1_1_1', winner: 1 }
+      { type: 'result', external_id: 't1_1_1', winner: 1 },
+      {
+        type: 'run_update',
+        run_id: 't1',
+        wins: 1,
+        losses: 1,
+        games_played: 2
+      }
     ];
 
     await request(app).post('/api/batch').set('x-api-key', 'secret').send(events).expect(200);
@@ -73,29 +94,34 @@ describe('Gomoku API Integration', () => {
     const res = await request(app).get('/api/matchups');
     expect(res.body).toHaveLength(1);
     const m = res.body[0];
-    expect(m.hero.name).toBe('B');
+    expect(m.hero.name).toBe('A');
     expect(m.heroWins).toBe(1);
     expect(m.villainWins).toBe(1);
     expect(m.total).toBe(2);
   });
 
   it('handles run updates', async () => {
-    const start = { type: 'run_start', run_id: 'r1', config_label: 'test', total_games: 100 };
+    const start = {
+      type: 'run_start',
+      run_id: 'r1',
+      config_label: 'test',
+      total_games: 100,
+      p1n: 'Bot1',
+      p1v: '1.0',
+      p2n: 'Bot2',
+      p2v: '1.0'
+    };
     await request(app).post('/api/batch').set('x-api-key', 'secret').send([start]).expect(200);
 
     const update = {
       type: 'run_update',
       run_id: 'r1',
-      games_played: 50,
-      p1_efficiency: 95.5,
-      p2_efficiency: 94.0
+      games_played: 50
     };
     await request(app).post('/api/batch').set('x-api-key', 'secret').send([update]).expect(200);
 
     const res = await request(app).get('/api/runs');
     expect(res.body).toHaveLength(1);
     expect(res.body[0].games_played).toBe(50);
-    expect(res.body[0].p1_efficiency).toBe(95.5);
-    expect(res.body[0].p2_efficiency).toBe(94.0);
   });
 });

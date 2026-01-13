@@ -14,74 +14,72 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
 
     auto print_help = [&]() {
         std::cout << "usage: " << argv[0] << " -1 <cmd> -2 <cmd> [options]\n\n"
-            << "Gomoku Arena: batch tournament runner with Elo and decision quality metrics.\n\n";
+            << "Arena: high-performance Gomoku tournament runner.\n\n";
 
         std::cout << "PLAYERS\n"
             << "  -1, --p1 <cmd>               player 1 executable (required)\n"
             << "  -2, --p2 <cmd>               player 2 executable (required)\n"
-            << "  -e, --eval <cmd>             evaluator engine for quality metrics\n\n";
+            << "  -e, --eval <cmd>             evaluator engine for quality metrics\n"
+            << "  -L, --lenient                ignore garbage output\n"
+            << "  -L1, --p1-lenient            lenient mode for player 1 only\n"
+            << "  -L2, --p2-lenient            lenient mode for player 2 only\n\n";
 
         std::cout << "GAME SETTINGS\n"
             << "  -s, --size <int>             board size, 5-40 (default: 20)\n"
             << "  -o, --openings <file>        opening positions file\n"
-            << "  --shuffle-openings           randomize opening order\n\n";
+            << "  --shuffle-openings           randomize opening order\n"
+            << "  -B, --force-board            force 'BOARD' command every turn\n\n";
 
         std::cout << "TIME CONTROL\n"
             << "  Units: ms, s (default), m, h. Suffix 1/2 for per-player: -t1 5s -t2 10s.\n"
             << "  Long forms: --p1-timeout-announce, --p2-timeout-game, etc.\n\n"
             << "  -t[1|2], --timeout-announce  thinking time hint to bots (default: 5s)\n"
-            << "  -T[1|2], --timeout-cutoff    hard turn deadline (default: timeout announce)\n"
+            << "  -T[1|2], --timeout-cutoff    hard turn deadline (default: from announce)\n"
             << "  -g[1|2], --timeout-game      total game time bank (default: unlimited)\n\n";
 
         std::cout << "RESOURCE LIMITS\n"
             << "  Memory: k, m (default), g. Nodes override time control (deterministic).\n"
             << "  Long forms: --p1-memory, --p2-max-nodes, --eval-max-nodes, etc.\n\n"
             << "  -l[1|2], --memory            limit memory (default: unlimited)\n"
-            << "  -N[1|2|e], --max-nodes       search node limit (evaluator default: 15M)\n\n";
+            << "  -N[1|2|e], --max-nodes       search node limit (evaluator default: 2M)\n\n";
 
         std::cout << "MATCH CONTROL\n"
-            << "  -m, --min-pairs <int>        minimum pairs before early stop (default: 5)\n"
-            << "  -M, --max-pairs <int>        maximum pairs to play (default: 10)\n"
-            << "  -r, --risk <float>           early stop confidence threshold (default: 0)\n"
-            << "  -j, --threads <int>          concurrent games (default: 4)\n\n";
+            << "  -m, --min-pairs <int>        minimum pairs before early stop (default: 1)\n"
+            << "  -M, --max-pairs <int>        maximum pairs to play (default: 50)\n"
+            << "  -r, --risk <float>           SPRT risk threshold (default: 0.0, disabled)\n"
+            << "  -j, --threads <int>          concurrent games (default: auto)\n\n";
 
         std::cout << "BATCH MODE\n"
-            << "  Comma-separated lists (no spaces): -N 250k,500k,1m -M 25,50\n"
+            << "  Comma-separated lists (no spaces): -N 250k,500k -M 25,50\n"
             << "  Arena generates Cartesian product; tournaments processed sequentially.\n"
             << "  Per-player lists (-N1, -N2) enable asymmetric comparison.\n\n"
             << "  --repeat <int>               run each configuration N times (default: 1)\n"
             << "  --seed <int,...>             explicit seeds to rotate through\n\n";
 
         std::cout << "API AND OUTPUT\n"
-            << "  --api-url <url>              remote endpoint for live results\n"
+            << "  --api-url <url>              remote endpoint for live updates\n"
             << "  --api-key <key>              API authentication key\n"
-            << "  --debounce <time>            API batch interval (default: half of announce)\n"
+            << "  --debounce <time>            API batch interval (default: 500ms)\n"
             << "  --cleanup                    clear API database before starting\n"
-            << "  --export-results <file>      NDJSON output, one line per finished config\n\n";
+            << "  --export-results <file>      NDJSON export, one line per finished config\n\n";
 
         std::cout << "DEBUGGING\n"
-            << "  -b, --show-board             print board after each move\n"
+            << "  -b, --show-board             print ASCII board after each move\n"
             << "  -d, --debug                  verbose logging with CPU metrics\n"
             << "  --exit-on-crash              terminate immediately on bot crash\n"
             << "  -h, --help                   show this message\n\n";
 
         std::cout << "EXAMPLES\n"
-            << "  arena -1 ./a -2 ./b -M 50\n"
-            << "  arena -1 ./new -2 ./old -e ./rapfi -t 10s\n"
-            << "  arena -1 ./a -2 ./b -t1 1s -t2 10s -N1 10000 -N2 10000\n"
-            << "  arena -1 ./a -2 ./b -N 250k,500k,1m -M 25,50 --repeat 3\n"
-            << "  arena -1 ./a -2 ./b -N1 100k,250k -N2 1m -M 25\n\n";
-
-        std::cout << "ENVIRONMENT VARIABLES\n"
-            << "  THREADS, MEMORY, SIZE, OPENINGS, TIMEOUT_ANNOUNCE, TIMEOUT_CUTOFF,\n"
-            << "  TIMEOUT_GAME, MAX_PAIRS, MIN_PAIRS, RISK, API_URL, API_KEY, DEBOUNCE\n\n";
+            << "  arena -1 ./p1 -2 ./p2 -M 50\n"
+            << "  arena -1 ./new -2 ./old -e ./rapfi -t 10s -L2\n"
+            << "  arena -1 ./p1 -2 ./p2 -N 10k,100k -M 20 --repeat 3\n"
+            << "  arena -1 ./p1 -2 ./p2 -B -s 15\n\n";
 
         std::cout << "METRICS\n"
-            << "  Elo        relative strength from win/loss/draw outcomes\n"
-            << "  SW-DQI     sharpness-weighted decision quality index (0-100)\n"
-            << "  CMA        critical move accuracy: success rate in sharp positions\n"
-            << "  Blunder    severe error rate: moves losing >20% win probability\n"
-            << "  Crashes    process failures, timeouts, or illegal moves\n\n";
+            << "  Elo        Relative strength based on pair outcomes (Win/Loss/Draw)\n"
+            << "  ERF        Error Function: Probability of superiority (50% = equal)\n"
+            << "  Time       Total wall-clock thinking time used\n"
+            << "  Crashes    Process failures, timeouts, or illegal moves\n\n";
 
         std::cout << "EXIT CODES\n"
             << "  0   success\n"
@@ -178,6 +176,10 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
     bc.p1_memory = get_mem("-l1", "--p1-memory", nullptr, common_mem);
     bc.p2_memory = get_mem("-l2", "--p2-memory", nullptr, common_mem);
 
+    bool common_lenient = consume_flag("-L") || consume_flag("--lenient");
+    bc.p1_lenient = consume_flag("-L1") || consume_flag("--p1-lenient") || common_lenient;
+    bc.p2_lenient = consume_flag("-L2") || consume_flag("--p2-lenient") || common_lenient;
+
     bc.common_nodes_list = get_node_list("-N", "--max-nodes");
     bc.p1_nodes_list = get_node_list("-N1", "--p1-max-nodes");
     bc.p2_nodes_list = get_node_list("-N2", "--p2-max-nodes");
@@ -218,6 +220,7 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
     bc.show_board = consume_flag("-b") || consume_flag("--show-board");
     bc.cleanup = consume_flag("--cleanup");
     bc.exit_on_crash = consume_flag("--exit-on-crash");
+    bc.force_board = consume_flag("-B") || consume_flag("--force-board");
     bc.api_url = get_str("", "--api-url", "API_URL");
     bc.api_key = get_str("", "--api-key", "API_KEY");
     bc.debounce_ms = get_dur(
@@ -339,6 +342,7 @@ Core::Config CLI::build_config(const Core::BatchConfig& bc, const Core::RunSpec&
     cfg.show_board = bc.show_board;
     cfg.cleanup = bc.cleanup;
     cfg.exit_on_crash = bc.exit_on_crash;
+    cfg.force_board = bc.force_board;
     cfg.api_url = bc.api_url;
     cfg.api_key = bc.api_key;
     cfg.debounce_ms = bc.debounce_ms;
@@ -353,12 +357,14 @@ Core::Config CLI::build_config(const Core::BatchConfig& bc, const Core::RunSpec&
     cfg.bot1.timeout_game = bc.p1_timeout_game;
     cfg.bot1.memory = bc.p1_memory;
     cfg.bot1.max_nodes = rs.p1_nodes;
+    cfg.bot1.lenient = bc.p1_lenient;
 
     cfg.bot2.timeout_announce = bc.p2_timeout_announce;
     cfg.bot2.timeout_cutoff = bc.p2_timeout_cutoff;
     cfg.bot2.timeout_game = bc.p2_timeout_game;
     cfg.bot2.memory = bc.p2_memory;
     cfg.bot2.max_nodes = rs.p2_nodes;
+    cfg.bot2.lenient = bc.p2_lenient;
 
     return cfg;
 }

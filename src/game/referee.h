@@ -52,7 +52,7 @@ namespace Arena::Game {
         Core::Point parse_and_validate_move(const std::string& r);
         void apply_move(const Core::Point& m);
         void finish(double res);
-        void send_result_event(double res);
+        void send_result_event(double res, long duration = 0);
         void print_board();
 
         std::chrono::steady_clock::time_point wall_start_;
@@ -66,6 +66,7 @@ namespace Arena::Game {
         int moves_ = 0;
         int time_p1_ = 0, time_p2_ = 0;
         long p1_cpu_ms_ = 0, p2_cpu_ms_ = 0;
+        long p1_wall_ms_ = 0, p2_wall_ms_ = 0;
         State state_ = State::UNINITIALIZED;
         bool start_sent_ = false;
         bool result_sent_ = false;
