@@ -14,7 +14,7 @@ export default [
     plugins: { react: pluginReact, 'react-hooks': pluginReactHooks },
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      'no-console': ['warn', { allow: ['log', 'warn', 'error'] }],
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
       'react/prop-types': 'off',
       'react/react-in-jsx-scope': 'off',
       'react/jsx-uses-vars': 'error',

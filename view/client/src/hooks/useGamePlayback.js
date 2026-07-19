@@ -1,20 +1,27 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function useGamePlayback(totalMoves) {
-  const [moveIndex, setMoveIndexState] = useState(totalMoves);
+  const [moveIndex, setMoveIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const timerRef = useRef(null);
 
-  const setMoveIndex = useCallback(
-    (val) => {
-      setMoveIndexState((prev) => {
-        const next = typeof val === 'function' ? val(prev) : val;
-        return Math.max(0, Math.min(next, totalMoves));
-      });
-    },
-    [totalMoves]
-  );
+  useEffect(() => {
+    if (isPlaying && moveIndex < totalMoves) {
+      const delay = [500, 200, 50][speed - 1];
+      timerRef.current = setTimeout(() => setMoveIndex((i) => i + 1), delay);
+    } else if (moveIndex >= totalMoves) {
+      setIsPlaying(false);
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [isPlaying, moveIndex, totalMoves, speed]);
 
   return {
     moveIndex,
-    setMoveIndex
+    setMoveIndex,
+    isPlaying,
+    setIsPlaying,
+    speed,
+    setSpeed
   };
 }
