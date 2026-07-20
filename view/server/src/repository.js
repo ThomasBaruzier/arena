@@ -92,13 +92,13 @@ const init = (db) => {
     getExpiredRunIds: db.prepare(
       `SELECT id FROM runs r
        WHERE games_played = 0
-         AND created_at < datetime('now', '-10 seconds')
+         AND created_at < datetime('now', '-60 seconds')
          AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = r.id)`
     ),
     deleteRuns: db.prepare(
       `DELETE FROM runs
        WHERE games_played = 0
-         AND created_at < datetime('now', '-10 seconds')
+         AND created_at < datetime('now', '-60 seconds')
          AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = runs.id)`
     ),
     markStaleRuns: db.prepare(
