@@ -3,7 +3,13 @@ import Database from 'better-sqlite3';
 let db;
 
 export const init = (dbPath) => {
-  db = new Database(dbPath);
+  try {
+    db = new Database(dbPath);
+  } catch (err) {
+    console.error(`Fatal: failed to open SQLite database at ${dbPath}:`, err.message);
+    throw err;
+  }
+
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 

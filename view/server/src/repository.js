@@ -75,6 +75,37 @@ const init = (db) => {
       ORDER BY r.updated_at DESC, r.id DESC
       LIMIT @limit OFFSET @offset
     `),
+    getGameBackedMatchups: db.prepare(`
+      WITH keyed_games AS (
+        SELECT
+          g.*,
+          CASE WHEN g.black_id <= g.white_id THEN g.black_id ELSE g.white_id END as p1_id,
+          CASE WHEN g.black_id <= g.white_id THEN g.white_id ELSE g.black_id END as p2_id
+        FROM games g
+      )
+      SELECT
+        COALESCE(k.tournament_id, 'legacy') as tournamentId,
+        p1.name as p1_name, p1.version as p1_version,
+        p2.name as p2_name, p2.version as p2_version,
+        SUM(CASE WHEN k.winner_color != 0 AND k.winner_color != 3 AND k.winner_color != 4 AND (
+          (k.winner_color = 1 AND k.black_id = k.p1_id) OR (k.winner_color = 2 AND k.white_id = k.p1_id)
+        ) THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN k.winner_color != 0 AND k.winner_color != 3 AND k.winner_color != 4 AND (
+          (k.winner_color = 1 AND k.black_id = k.p2_id) OR (k.winner_color = 2 AND k.white_id = k.p2_id)
+        ) THEN 1 ELSE 0 END) as losses,
+        SUM(CASE WHEN k.winner_color = 3 THEN 1 ELSE 0 END) as draws,
+        SUM(CASE WHEN k.winner_color != 0 THEN 1 ELSE 0 END) as games_played,
+        MAX(k.timestamp) as updated_at,
+        SUM(CASE WHEN k.winner_color = 0 THEN 1 ELSE 0 END) as live_count,
+        k.p1_id,
+        k.p2_id
+      FROM keyed_games k
+      JOIN players p1 ON k.p1_id = p1.id
+      JOIN players p2 ON k.p2_id = p2.id
+      GROUP BY COALESCE(k.tournament_id, 'legacy'), k.p1_id, k.p2_id
+      ORDER BY updated_at DESC, tournamentId DESC
+      LIMIT @limit OFFSET @offset
+    `),
     getRunOffset: db.prepare(`
       SELECT COUNT(*) as offset FROM runs
       WHERE updated_at > (SELECT updated_at FROM runs WHERE id = @id)
@@ -90,10 +121,16 @@ const init = (db) => {
       ) WHERE m_id > @targetMaxId
     `),
     getExpiredRunIds: db.prepare(
-      `SELECT id FROM runs WHERE games_played = 0 AND created_at < datetime('now', '-10 seconds')`
+      `SELECT id FROM runs r
+       WHERE games_played = 0
+         AND created_at < datetime('now', '-10 seconds')
+         AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = r.id)`
     ),
     deleteRuns: db.prepare(
-      `DELETE FROM runs WHERE id IN (SELECT id FROM runs WHERE games_played = 0 AND created_at < datetime('now', '-10 seconds'))`
+      `DELETE FROM runs
+       WHERE games_played = 0
+         AND created_at < datetime('now', '-10 seconds')
+         AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = runs.id)`
     ),
     markStaleRuns: db.prepare(
       `UPDATE runs SET is_done = 1, timed_out = 1 WHERE is_done = 0 AND updated_at < datetime('now', '-5 minutes')`
@@ -155,8 +192,10 @@ export const updateRun = (r) => stmts.updateRun.run(r);
 export const getRunById = (id) => stmts.getRunById.get(id);
 export const getAllRuns = () => stmts.getAllRuns.all();
 export const getLatestGame = () => stmts.getLatestGame.get();
-export const getRunsForMatchups = (limit, offset) =>
-  stmts.getRunsForMatchups.all({ limit, offset });
+export const getRunsForMatchups = (limit, offset) => {
+  const runs = stmts.getRunsForMatchups.all({ limit, offset });
+  return runs.length > 0 ? runs : stmts.getGameBackedMatchups.all({ limit, offset });
+};
 export const getAllPlayers = () => stmts.getAllPlayers.all();
 export const getExpiredRunIds = () => stmts.getExpiredRunIds.all();
 export const deleteRuns = () => stmts.deleteRuns.run();

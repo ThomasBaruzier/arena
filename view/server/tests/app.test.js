@@ -100,6 +100,33 @@ describe('Gomoku API Integration', () => {
     expect(m.total).toBe(2);
   });
 
+  it('builds matchups from games when run rows are missing', async () => {
+    const events = [
+      {
+        type: 'start',
+        external_id: 'missing_run_1_0',
+        run_id: 'missing_run',
+        p1n: 'Agent',
+        p1v: '0.1',
+        p2n: 'Shrek',
+        p2v: '6.2'
+      },
+      { type: 'move', external_id: 'missing_run_1_0', x: 10, y: 10, c: 1 },
+      { type: 'result', external_id: 'missing_run_1_0', winner: 1 }
+    ];
+
+    await request(app).post('/api/batch').set('x-api-key', 'secret').send(events).expect(200);
+
+    const runs = await request(app).get('/api/runs');
+    expect(runs.body).toHaveLength(0);
+
+    const res = await request(app).get('/api/matchups');
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].tournamentId).toBe('missing_run');
+    expect(res.body[0].total).toBe(1);
+    expect([res.body[0].hero.name, res.body[0].villain.name]).toEqual(['Agent', 'Shrek']);
+  });
+
   it('handles run updates', async () => {
     const start = {
       type: 'run_start',
