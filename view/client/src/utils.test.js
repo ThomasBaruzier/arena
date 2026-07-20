@@ -2,16 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { compareVersions, parseMoves, getWinningLine } from './utils';
 
 describe('compareVersions', () => {
-  it('compares versions correctly', () => {
+  it('matches server hero ordering', () => {
     expect(
-      compareVersions({ version: '2.0', name: 'a' }, { version: '1.0', name: 'b' })
+      compareVersions({ version: '0.3', name: 'agent' }, { version: '6.2', name: 'shrek' })
     ).toBeGreaterThan(0);
     expect(
-      compareVersions({ version: '1.0', name: 'a' }, { version: '2.0', name: 'b' })
+      compareVersions({ version: '6.2', name: 'shrek' }, { version: '0.3', name: 'agent' })
     ).toBeLessThan(0);
     expect(
-      compareVersions({ version: '1.0', name: 'a' }, { version: '1.0', name: 'b' })
-    ).toBeLessThan(0);
+      compareVersions({ version: '2.0', name: 'agent' }, { version: '1.0', name: 'agent' })
+    ).toBeGreaterThan(0);
   });
 });
 
