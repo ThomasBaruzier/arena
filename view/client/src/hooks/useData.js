@@ -21,7 +21,7 @@ const matchupsReducer = (state, action) => {
         const updated = {
           ...state[idx],
           lastActivity: e.game.timestamp,
-          total: state[idx].total + 1
+          live_count: (state[idx].live_count || 0) + 1
         };
         return [updated, ...state.filter((_, i) => i !== idx)];
       }
@@ -36,11 +36,37 @@ const matchupsReducer = (state, action) => {
           heroWins: 0,
           villainWins: 0,
           draws: 0,
-          total: 1,
+          total: 0,
+          live_count: 1,
           lastActivity: e.game.timestamp
         },
         ...state
       ];
+    }
+    case 'run_update': {
+      const run = action.event.run || action.event;
+      const tid = run.run_id || run.id;
+      return state.map((m) => {
+        if (m.tournamentId !== tid) return m;
+
+        let heroWins = m.heroWins;
+        let villainWins = m.villainWins;
+        if (typeof run.wins === 'number') {
+          const p1 = { name: run.p1_name, version: run.p1_version };
+          const p2 = { name: run.p2_name, version: run.p2_version };
+          const p1IsHero = compareVersions(p1, p2) >= 0;
+          heroWins = p1IsHero ? run.wins : run.losses;
+          villainWins = p1IsHero ? run.losses : run.wins;
+        }
+
+        return {
+          ...m,
+          heroWins,
+          villainWins,
+          draws: run.draws ?? m.draws,
+          total: run.games_played ?? m.total
+        };
+      });
     }
     case 'game_result': {
       const e = action.event;
@@ -51,19 +77,11 @@ const matchupsReducer = (state, action) => {
           ((m.hero.id === e.black_id && m.villain.id === e.white_id) ||
             (m.hero.id === e.white_id && m.villain.id === e.black_id));
         if (!isMatch) return m;
-        const u = { ...m };
-        const isSelfPlay = e.black_id === e.white_id;
-        if (e.winner_color === 3) u.draws++;
-        else if (isSelfPlay) {
-          const isLeg0 = e.external_id?.endsWith('_0');
-          if (isLeg0) e.winner_color === 1 ? u.heroWins++ : u.villainWins++;
-          else e.winner_color === 1 ? u.villainWins++ : u.heroWins++;
-        } else {
-          const isHeroBlack = m.hero.id === e.black_id;
-          if (e.winner_color === 1) isHeroBlack ? u.heroWins++ : u.villainWins++;
-          else if (e.winner_color === 2) isHeroBlack ? u.villainWins++ : u.heroWins++;
-        }
-        return u;
+        return {
+          ...m,
+          lastActivity: new Date().toISOString(),
+          live_count: Math.max(0, (m.live_count || 0) - 1)
+        };
       });
     }
     default:
@@ -114,6 +132,7 @@ export function useMatchups(subscribe) {
         dispatch({ type: 'RESET' });
         loadMore(true);
       } else if (e.type === 'game_start') dispatch({ type: 'game_start', event: e });
+      else if (e.type === 'run_update') dispatch({ type: 'run_update', event: e });
       else if (e.type === 'game_result') dispatch({ type: 'game_result', event: e });
     });
   }, [subscribe, loadMore]);
