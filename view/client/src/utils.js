@@ -59,8 +59,17 @@ export const getWinningLine = (moves, winnerColor) => {
   return [];
 };
 
+export const getRunId = (value) => value?.runId || value?.run_id || value?.id || value?.tournamentId || value?.tournament_id || 'legacy';
+
+export const getEventRunId = (event) =>
+  event?.game?.run_id || event?.run_id || event?.run?.id || event?.game?.tournament_id || event?.tournament_id || 'legacy';
+
+export const playerPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+export const samePlayerPair = (a, b, c, d) => playerPairKey(a, b) === playerPairKey(c, d);
+
 export const matchupKey = (m) => {
-  const tid = m.tournamentId || 'legacy';
+  const tid = getRunId(m);
   const minId = Math.min(m.hero.id, m.villain.id);
   const maxId = Math.max(m.hero.id, m.villain.id);
   return `${tid}-${minId}-${maxId}`;

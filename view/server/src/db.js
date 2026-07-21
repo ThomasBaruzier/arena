@@ -79,6 +79,12 @@ export const init = (dbPath) => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS run_aliases (
+      alias TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_games_players ON games(black_id, white_id);
     CREATE INDEX IF NOT EXISTS idx_games_timestamp ON games(timestamp);
     CREATE INDEX IF NOT EXISTS idx_games_group ON games(group_id);

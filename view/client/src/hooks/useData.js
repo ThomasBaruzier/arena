@@ -1,9 +1,11 @@
 import { useState, useEffect, useReducer, useCallback } from 'react';
-import { matchupKey, compareVersions } from '../utils';
+import { matchupKey, compareVersions, getEventRunId, getRunId, playerPairKey, samePlayerPair } from '../utils';
 
 const API_BASE = '/api';
+const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'run_delete', 'game_result']);
+const sameId = (a, b) => String(a) === String(b);
 
-const matchupsReducer = (state, action) => {
+export const matchupsReducer = (state, action) => {
   switch (action.type) {
     case 'SET':
       return action.data;
@@ -14,16 +16,29 @@ const matchupsReducer = (state, action) => {
     case 'game_start': {
       const e = action.event;
       if (!e.game) return state;
-      const tid = e.game.tournament_id || 'legacy';
-      const key = `${tid}-${Math.min(e.game.black_id, e.game.white_id)}-${Math.max(e.game.black_id, e.game.white_id)}`;
-      const idx = state.findIndex((m) => matchupKey(m) === key);
+      const tid = getEventRunId(e);
+      const pairKey = playerPairKey(e.game.black_id, e.game.white_id);
+      const eventKey = `${tid}-${pairKey}`;
+      const legacyTid = e.game.tournament_id || 'legacy';
+      const legacyKey = `${legacyTid}-${pairKey}`;
+      const canonicalIdx = state.findIndex((m) => matchupKey(m) === eventKey);
+      const legacyIdx = state.findIndex((m) => matchupKey(m) === legacyKey);
+      const idx = canonicalIdx !== -1 ? canonicalIdx : legacyIdx;
       if (idx !== -1) {
+        const isCanonicalMatch = matchupKey(state[idx]) === eventKey;
         const updated = {
           ...state[idx],
+          tournamentId: tid,
+          runId: e.game.run_id || tid,
           lastActivity: e.game.timestamp,
-          live_count: (state[idx].live_count || 0) + 1
+          live_count:
+            (state[idx].live_count || 0) +
+            (e.game.winner_color === 0 && !e.migration && (isCanonicalMatch || (state[idx].live_count || 0) === 0) ? 1 : 0)
         };
-        return [updated, ...state.filter((_, i) => i !== idx)];
+        return [
+          updated,
+          ...state.filter((_, i) => i !== idx && (canonicalIdx === -1 || i !== legacyIdx))
+        ];
       }
       const p1 = { id: e.game.black_id, name: e.game.black_name, version: e.game.black_ver };
       const p2 = { id: e.game.white_id, name: e.game.white_name, version: e.game.white_ver };
@@ -31,13 +46,14 @@ const matchupsReducer = (state, action) => {
       return [
         {
           tournamentId: tid,
+          runId: e.game.run_id || tid,
           hero: isP1Hero ? p1 : p2,
           villain: isP1Hero ? p2 : p1,
           heroWins: 0,
           villainWins: 0,
           draws: 0,
           total: 0,
-          live_count: 1,
+          live_count: e.game.winner_color === 0 ? 1 : 0,
           lastActivity: e.game.timestamp
         },
         ...state
@@ -45,18 +61,21 @@ const matchupsReducer = (state, action) => {
     }
     case 'run_update': {
       const run = action.event.run || action.event;
-      const tid = run.run_id || run.id;
+      const tid = getEventRunId(action.event);
       return state.map((m) => {
-        if (m.tournamentId !== tid) return m;
+        if (!sameId(getRunId(m), tid)) return m;
 
         let heroWins = m.heroWins;
         let villainWins = m.villainWins;
-        if (typeof run.wins === 'number') {
+        if (typeof run.wins === 'number' && run.p1_name) {
           const p1 = { name: run.p1_name, version: run.p1_version };
           const p2 = { name: run.p2_name, version: run.p2_version };
           const p1IsHero = compareVersions(p1, p2) >= 0;
           heroWins = p1IsHero ? run.wins : run.losses;
           villainWins = p1IsHero ? run.losses : run.wins;
+        } else if (typeof run.wins === 'number') {
+          heroWins = run.wins;
+          villainWins = run.losses;
         }
 
         return {
@@ -68,19 +87,22 @@ const matchupsReducer = (state, action) => {
         };
       });
     }
+    case 'run_delete': {
+      const tid = action.event.run_id;
+      return state.filter((m) => !sameId(getRunId(m), tid));
+    }
     case 'game_result': {
       const e = action.event;
-      const tid = e.tournament_id || 'legacy';
+      const tid = getEventRunId(e);
       return state.map((m) => {
         const isMatch =
-          m.tournamentId === tid &&
-          ((m.hero.id === e.black_id && m.villain.id === e.white_id) ||
-            (m.hero.id === e.white_id && m.villain.id === e.black_id));
+          sameId(getRunId(m), tid) &&
+          samePlayerPair(m.hero.id, m.villain.id, e.black_id, e.white_id);
         if (!isMatch) return m;
         return {
           ...m,
           lastActivity: new Date().toISOString(),
-          live_count: Math.max(0, (m.live_count || 0) - 1)
+          live_count: e.winner_color === 0 ? m.live_count || 0 : Math.max(0, (m.live_count || 0) - 1)
         };
       });
     }
@@ -131,9 +153,8 @@ export function useMatchups(subscribe) {
       if (e.type === 'reset') {
         dispatch({ type: 'RESET' });
         loadMore(true);
-      } else if (e.type === 'game_start') dispatch({ type: 'game_start', event: e });
-      else if (e.type === 'run_update') dispatch({ type: 'run_update', event: e });
-      else if (e.type === 'game_result') dispatch({ type: 'game_result', event: e });
+      } else if (e.type === 'run_start') loadMore(true);
+      else if (REDUCER_EVENTS.has(e.type)) dispatch({ type: e.type, event: e });
     });
   }, [subscribe, loadMore]);
 
@@ -157,9 +178,12 @@ export function useRuns(subscribe) {
   useEffect(() => {
     return subscribe((e) => {
       if (e.type === 'reset') fetchRuns();
-      else if (e.type === 'run_start') setRuns((p) => [e.run, ...p]);
+      else if (e.type === 'run_start')
+        setRuns((p) => [e.run, ...p.filter((r) => !sameId(r.id, e.run.id))]);
       else if (e.type === 'run_update')
-        setRuns((p) => p.map((r) => (r.id === e.run.id ? { ...r, ...e.run } : r)));
+        setRuns((p) => p.map((r) => (sameId(r.id, e.run.id) ? { ...r, ...e.run } : r)));
+      else if (e.type === 'run_delete')
+        setRuns((p) => p.filter((r) => !sameId(r.id, e.run_id)));
     });
   }, [subscribe, fetchRuns]);
 

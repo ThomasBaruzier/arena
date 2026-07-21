@@ -35,6 +35,7 @@ const cleanupInterval = setInterval(() => {
           id: row.id,
           external_id: row.external_id,
           tournament_id: row.tournament_id,
+          run_id: row.run_id,
           winner_color: 4,
           moves: row.moves,
           move_count: row.moves ? row.moves.split(';').length : 0,

@@ -1,13 +1,57 @@
 import { useState, useEffect, useReducer, useRef, useCallback } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, Loader } from 'lucide-react';
+import { getEventRunId, samePlayerPair } from '../utils';
 
 const API_BASE = '/api';
+const SORT_COLUMNS = [
+  ['id', 'ID'],
+  ['moves', 'Mvs'],
+  ['status', 'Res'],
+  ['time', 'Time']
+];
 
 const formatFloat = (val) => {
   if (val === undefined || val === null) return '0.00';
   if (val >= 100) return val.toFixed(0);
   if (val >= 10) return val.toFixed(1);
   return val.toFixed(2);
+};
+
+const sortGames = (games, { col, asc }) => {
+  if (col !== 'id') return [...games].sort((a, b) => a.id - b.id);
+  return [...games].sort((a, b) => (asc ? a.id - b.id : b.id - a.id));
+};
+
+const getMoveCount = (g) =>
+  g.move_count ?? (g.moves ? g.moves.split(';').filter(Boolean).length : 0);
+
+const isHeroWin = (g, heroId) => {
+  if (!heroId || g.winner_color === 0 || g.winner_color === 3 || g.winner_color === 4) return false;
+  const isHeroBlack = g.black_id === heroId;
+  return (g.winner_color === 1 && isHeroBlack) || (g.winner_color === 2 && !isHeroBlack);
+};
+
+const sameGame = (a, b) =>
+  a.id === b.id ||
+  (a.external_id !== undefined &&
+    a.external_id !== null &&
+    b.external_id !== undefined &&
+    b.external_id !== null &&
+    a.external_id === b.external_id);
+
+const summarizePair = (pair, games, sort, heroId, latestTs = pair.latest_ts) => {
+  const sortedGames = sortGames(games, sort);
+  const movesList = sortedGames.map(getMoveCount);
+  return {
+    ...pair,
+    games: sortedGames,
+    max_id: Math.max(pair.max_id || 0, ...sortedGames.map((g) => g.id || 0)),
+    latest_ts: latestTs,
+    max_moves: Math.max(...movesList),
+    min_moves: Math.min(...movesList),
+    live_count: sortedGames.filter((g) => g.winner_color === 0).length,
+    hero_wins: sortedGames.reduce((acc, g) => acc + (isHeroWin(g, heroId) ? 1 : 0), 0)
+  };
 };
 
 const sortPairs = (pairs, { col, asc }) => {
@@ -34,47 +78,53 @@ const sortPairs = (pairs, { col, asc }) => {
   });
 };
 
-const pairsReducer = (state, action) => {
+export const pairsReducer = (state, action) => {
   let newState;
   switch (action.type) {
     case 'SET':
       newState = action.data;
       break;
-    case 'APPEND':
-      newState = [...state, ...action.data];
+    case 'APPEND': {
+      const byGroup = new Map(state.map((p) => [p.group_id, p]));
+      for (const incoming of action.data) {
+        const existing = byGroup.get(incoming.group_id);
+        if (!existing) {
+          byGroup.set(incoming.group_id, incoming);
+          continue;
+        }
+        const gamesById = new Map(existing.games.map((g) => [g.id, g]));
+        for (const game of incoming.games) gamesById.set(game.id, game);
+        byGroup.set(incoming.group_id, { ...incoming, games: [...gamesById.values()] });
+      }
+      newState = [...byGroup.values()];
       break;
+    }
     case 'CLEAR':
       return [];
     case 'game_start': {
-      const g = action.game;
-      const existing = state.find((p) => p.group_id === g.group_id);
+      const g = { ...action.game, move_count: getMoveCount(action.game) };
+      const stateWithoutGame = state
+        .map((p) => ({
+          ...p,
+          games: p.games.filter((x) => !sameGame(x, g))
+        }))
+        .filter((p) => p.games.length > 0);
+      const existing = stateWithoutGame.find((p) => p.group_id === g.group_id);
       if (existing) {
-        if (existing.games.some((x) => x.id === g.id)) return state;
-        newState = state.map((p) =>
+        newState = stateWithoutGame.map((p) =>
           p.group_id === g.group_id
-            ? {
-                ...p,
-                games: [...p.games, g].sort((a, b) => a.id - b.id),
-                max_id: Math.max(p.max_id, g.id),
-                latest_ts: g.timestamp,
-                live_count:
-                  p.games.filter((x) => x.winner_color === 0).length +
-                  (g.winner_color === 0 ? 1 : 0)
-              }
+            ? summarizePair(p, [...p.games, g], action.sort, action.heroId, g.timestamp)
             : p
         );
       } else {
         newState = [
-          {
-            group_id: g.group_id,
-            max_moves: 0,
-            min_moves: 0,
-            live_count: 1,
-            hero_wins: 0,
-            latest_ts: g.timestamp,
-            max_id: g.id,
-            games: [g]
-          },
+          summarizePair(
+            { group_id: g.group_id, latest_ts: g.timestamp, max_id: g.id, games: [] },
+            [g],
+            action.sort,
+            action.heroId,
+            g.timestamp
+          ),
           ...state
         ];
       }
@@ -82,37 +132,54 @@ const pairsReducer = (state, action) => {
     }
     case 'game_update': {
       const e = action.event;
-      newState = state.map((p) => {
-        if (p.group_id !== e.group_id) return p;
-        const newGames = p.games.map((g) =>
-          g.id === e.id
-            ? {
-                ...g,
-                move_count: e.move_count ?? g.move_count,
-                winner_color: e.winner_color ?? g.winner_color
-              }
-            : g
-        );
-        const movesList = newGames.map((g) => g.move_count || 0);
-        let heroWins = 0;
-        if (action.heroId) {
-          heroWins = newGames.reduce((acc, g) => {
-            if (g.winner_color === 3 || g.winner_color === 0) return acc;
-            const isHeroBlack = g.black_id === action.heroId;
-            const isHeroWin =
-              (g.winner_color === 1 && isHeroBlack) || (g.winner_color === 2 && !isHeroBlack);
-            return acc + (isHeroWin ? 1 : 0);
-          }, 0);
-        } else heroWins = p.hero_wins;
-        return {
-          ...p,
-          games: newGames,
-          max_moves: Math.max(...movesList),
-          min_moves: Math.min(...movesList),
-          live_count: newGames.filter((g) => g.winner_color === 0).length,
-          hero_wins: heroWins
+      const sourcePair = state.find((p) =>
+        p.games.some((g) => sameGame(g, e))
+      );
+      const sourceGame = sourcePair?.games.find((g) => sameGame(g, e));
+      const updatedGame = sourceGame
+        ? {
+            ...sourceGame,
+            group_id: e.group_id ?? sourceGame.group_id,
+            tournament_id: e.tournament_id ?? sourceGame.tournament_id,
+            run_id: e.run_id ?? sourceGame.run_id,
+            moves: e.moves ?? sourceGame.moves,
+            move_count: e.move_count ?? sourceGame.move_count,
+            winner_color: e.winner_color ?? sourceGame.winner_color,
+            duration: e.duration ?? sourceGame.duration
+          }
+        : null;
+
+      const byGroup = new Map();
+      for (const pair of state) {
+        const games = pair.games.filter((g) => !sameGame(g, e));
+        if (games.length > 0) byGroup.set(pair.group_id, { ...pair, games });
+      }
+
+      if (updatedGame) {
+        const groupId = updatedGame.group_id;
+        const target = byGroup.get(groupId) || {
+          group_id: groupId,
+          max_moves: 0,
+          min_moves: 0,
+          live_count: 0,
+          hero_wins: 0,
+          latest_ts: updatedGame.timestamp,
+          max_id: updatedGame.id,
+          games: []
         };
-      });
+        byGroup.set(
+          groupId,
+          summarizePair(
+            target,
+            [...target.games, updatedGame],
+            action.sort,
+            action.heroId,
+            updatedGame.timestamp ?? target.latest_ts
+          )
+        );
+      }
+
+      newState = [...byGroup.values()];
       break;
     }
     default:
@@ -121,6 +188,17 @@ const pairsReducer = (state, action) => {
   if (action.sort && newState) return sortPairs(newState, action.sort);
   return newState;
 };
+
+const RunStatsRow = ({ run, side, hasCrashes }) => (
+  <div className={`stats-row ${side} ${hasCrashes ? 'has-crash' : ''}`}>
+    <span className="player-label">{side.toUpperCase()}</span>
+    <span>{formatFloat(run[`${side}_elo`])}</span>
+    <span>{formatFloat(run[`${side}_erf`])}</span>
+    <span>{formatFloat(run[`${side}_cma`])}%</span>
+    <span>{formatFloat(run[`${side}_blunder`])}%</span>
+    {hasCrashes && <span className="crash">{run[`${side}_crashes`]}</span>}
+  </div>
+);
 
 export default function MatchGroup({
   group,
@@ -140,7 +218,7 @@ export default function MatchGroup({
   const sentinelRef = useRef(null);
 
   const progress = run && run.total_games > 0 ? (run.games_played / run.total_games) * 100 : 0;
-  const isFinished = run && run.games_played >= run.total_games;
+  const isFinished = run && run.total_games > 0 && run.games_played >= run.total_games;
 
   const fetchGames = useCallback(
     (sortConfig, offset = 0, append = false) => {
@@ -149,12 +227,13 @@ export default function MatchGroup({
       const params = new URLSearchParams({
         hero_id: group.hero.id,
         villain_id: group.villain.id,
-        tournament_id: group.tournamentId,
         sort: sortConfig.col,
         order: sortConfig.asc ? 'asc' : 'desc',
         limit: 50,
         offset
       });
+      if (group.runId) params.set('run_id', group.runId);
+      else params.set('tournament_id', group.tournamentId);
       return fetch(`${API_BASE}/games?${params}`, { signal: abortRef.current.signal })
         .then((r) => r.json())
         .then((data) => {
@@ -170,8 +249,8 @@ export default function MatchGroup({
         .catch((e) => {
           if (e.name !== 'AbortError') setLoaded(false);
         });
-    },
-    [group.hero.id, group.villain.id, group.tournamentId, onLoaded]
+  }, [group.hero.id, group.villain.id, group.runId, group.tournamentId, onLoaded]
+
   );
 
   useEffect(() => {
@@ -215,11 +294,9 @@ export default function MatchGroup({
   useEffect(() => {
     if (!open || !loaded) return;
     return subscribe((e) => {
-      const tid = e.game?.tournament_id || e.tournament_id || 'legacy';
-      if (tid !== group.tournamentId) return;
-      const isMatch = (bId, wId) =>
-        (bId === group.hero.id && wId === group.villain.id) ||
-        (bId === group.villain.id && wId === group.hero.id);
+      const tid = getEventRunId(e);
+      if (String(tid) !== String(group.runId || group.tournamentId)) return;
+      const isMatch = (bId, wId) => samePlayerPair(group.hero.id, group.villain.id, bId, wId);
       if (e.type === 'game_start' && e.game && isMatch(e.game.black_id, e.game.white_id)) {
         dispatch({ type: 'game_start', game: e.game, sort, heroId: group.hero.id });
       }
@@ -227,17 +304,15 @@ export default function MatchGroup({
         dispatch({ type: 'game_update', event: e, sort, heroId: group.hero.id });
       }
     });
-  }, [open, loaded, group.hero.id, group.villain.id, group.tournamentId, subscribe, sort]);
+  }, [open, loaded, group.hero.id, group.villain.id, group.runId, group.tournamentId, subscribe, sort]);
 
   const getStatusClass = (g) => {
-    if (g.winner_color === 0) return 'live-dot';
     if (g.winner_color === 3) return 'res-dot draw';
     if (group.hero.id === group.villain.id) {
       const heroColor = g.external_id?.endsWith('_0') ? 1 : 2;
       return g.winner_color === heroColor ? 'res-dot res-win' : 'res-dot res-loss';
     }
-    const isHeroWin = (g.winner_color === 1) === (g.black_id === group.hero.id);
-    return isHeroWin ? 'res-dot res-win' : 'res-dot res-loss';
+    return isHeroWin(g, group.hero.id) ? 'res-dot res-win' : 'res-dot res-loss';
   };
 
   const showContent = open && loaded;
@@ -292,7 +367,6 @@ export default function MatchGroup({
               </div>
               {run && (
                 <div className="meta-info">
-                  <span className="badge load">Load: {formatFloat(run.arena_load)}%</span>
                   <span className={`badge progress ${isFinished ? 'finished' : ''}`}>
                     {run.games_played}/{run.total_games}
                   </span>
@@ -309,30 +383,13 @@ export default function MatchGroup({
                 <div className={`stats-header ${hasCrashes ? 'has-crash' : ''}`}>
                   <span></span>
                   <span>Elo</span>
-                  <span>DQI</span>
+                  <span>ERF</span>
                   <span>CMA</span>
                   <span>Bln</span>
-                  <span>Eff</span>
                   {hasCrashes && <span>💥</span>}
                 </div>
-                <div className={`stats-row p1 ${hasCrashes ? 'has-crash' : ''}`}>
-                  <span className="player-label">P1</span>
-                  <span>{formatFloat(run.p1_elo)}</span>
-                  <span>{formatFloat(run.p1_dqi)}</span>
-                  <span>{formatFloat(run.p1_cma)}%</span>
-                  <span>{formatFloat(run.p1_blunder)}%</span>
-                  <span>{formatFloat(run.p1_efficiency)}%</span>
-                  {hasCrashes && <span className="crash">{run.p1_crashes}</span>}
-                </div>
-                <div className={`stats-row p2 ${hasCrashes ? 'has-crash' : ''}`}>
-                  <span className="player-label">P2</span>
-                  <span>{formatFloat(run.p2_elo)}</span>
-                  <span>{formatFloat(run.p2_dqi)}</span>
-                  <span>{formatFloat(run.p2_cma)}%</span>
-                  <span>{formatFloat(run.p2_blunder)}%</span>
-                  <span>{formatFloat(run.p2_efficiency)}%</span>
-                  {hasCrashes && <span className="crash">{run.p2_crashes}</span>}
-                </div>
+                <RunStatsRow run={run} side="p1" hasCrashes={hasCrashes} />
+                <RunStatsRow run={run} side="p2" hasCrashes={hasCrashes} />
               </div>
             );
           })()}
@@ -340,12 +397,7 @@ export default function MatchGroup({
       <div className={`group-list ${animState}`}>
         <div className="group-list-inner">
           <div className="match-header-row">
-            {[
-              ['id', 'ID'],
-              ['moves', 'Mvs'],
-              ['status', 'Res'],
-              ['time', 'Time']
-            ].map(([col, label]) => (
+            {SORT_COLUMNS.map(([col, label]) => (
               <div
                 key={col}
                 onClick={() => handleSort(col)}

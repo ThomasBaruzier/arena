@@ -1,6 +1,59 @@
 let stmts = {};
 let dbInstance = null;
 
+const sourceColumn = (column) => `(SELECT ${column} FROM runs WHERE id = @from)`;
+const copyColumn = (column, condition) =>
+  `${column} = CASE WHEN (${condition}) THEN ${sourceColumn(column)} ELSE ${column} END`;
+const gameIdentityAssignments = 'group_id = @group_id, tournament_id = @run_id, run_id = @run_id';
+
+const sourceHasPlayers = `${sourceColumn('p1_name')} != 'Unknown' AND ${sourceColumn('p2_name')} != 'Unknown'`;
+const placeholderRunCondition = `
+  config_label = 'repaired' OR
+  (config_label = 'live' AND total_games = 0 AND p1_nodes = 0 AND p2_nodes = 0 AND eval_nodes = 0 AND min_pairs = 0 AND max_pairs = 0)
+`;
+const placeholderRunWithPlayersCondition = `(${sourceHasPlayers}) AND (${placeholderRunCondition})`;
+const betterRunMetricsCondition = `
+  ${sourceColumn('games_played')} > games_played OR
+  (${sourceColumn('games_played')} = games_played AND
+   ${sourceColumn('wins + losses + draws')} > wins + losses + draws)
+`;
+const mergeRunMetricAssignments = ['p1_name', 'p1_version', 'p2_name', 'p2_version']
+  .map((column) => copyColumn(column, placeholderRunWithPlayersCondition))
+  .concat(
+    [
+      'config_label',
+      'total_games',
+      'p1_nodes',
+      'p2_nodes',
+      'eval_nodes',
+      'board_size',
+      'min_pairs',
+      'max_pairs',
+      'repeat_index',
+      'seed'
+    ].map((column) => copyColumn(column, placeholderRunCondition)),
+    ['games_played', 'wins', 'losses', 'draws'].map((column) =>
+      copyColumn(column, betterRunMetricsCondition)
+    ),
+    [
+      'wall_time_ms',
+      'p1_elo',
+      'p1_erf',
+      'p1_total_time_ms',
+      'p1_crashes',
+      'p1_cma',
+      'p1_blunder',
+      'p2_elo',
+      'p2_erf',
+      'p2_total_time_ms',
+      'p2_crashes',
+      'p2_cma',
+      'p2_blunder'
+    ].map((column) => copyColumn(column, betterRunMetricsCondition)),
+    ['is_done', 'timed_out'].map((column) => copyColumn(column, placeholderRunCondition))
+  )
+  .join(',\n        ');
+
 const init = (db) => {
   dbInstance = db;
   stmts = {
@@ -9,9 +62,17 @@ const init = (db) => {
     ),
     getPlayerId: db.prepare('SELECT id FROM players WHERE name = @name AND version = @version'),
     insertGame: db.prepare(`
-      INSERT OR IGNORE INTO games (
+      INSERT INTO games (
         external_id, group_id, tournament_id, black_id, white_id, run_id, black_is_p1, opening_len
       ) VALUES (@external_id, @group_id, @tournament_id, @black_id, @white_id, @run_id, @black_is_p1, @opening_len)
+      ON CONFLICT(external_id) DO UPDATE SET
+        group_id = excluded.group_id,
+        tournament_id = excluded.tournament_id,
+        run_id = excluded.run_id,
+        black_id = excluded.black_id,
+        white_id = excluded.white_id,
+        black_is_p1 = excluded.black_is_p1,
+        opening_len = excluded.opening_len
     `),
     getGameByExt: db.prepare('SELECT * FROM games WHERE external_id = ?'),
     updateGameFull: db.prepare(
@@ -29,13 +90,29 @@ const init = (db) => {
       WHERE g.id = ?
     `),
     insertRun: db.prepare(`
-      INSERT OR REPLACE INTO runs (
+      INSERT INTO runs (
         id, p1_name, p1_version, p2_name, p2_version, config_label, total_games,
         p1_nodes, p2_nodes, eval_nodes, board_size, min_pairs, max_pairs, repeat_index, seed
       ) VALUES (
         @id, @p1_name, @p1_version, @p2_name, @p2_version, @config_label, @total_games,
         @p1_nodes, @p2_nodes, @eval_nodes, @board_size, @min_pairs, @max_pairs, @repeat_index, @seed
       )
+      ON CONFLICT(id) DO UPDATE SET
+        p1_name = excluded.p1_name,
+        p1_version = excluded.p1_version,
+        p2_name = excluded.p2_name,
+        p2_version = excluded.p2_version,
+        config_label = excluded.config_label,
+        total_games = excluded.total_games,
+        p1_nodes = excluded.p1_nodes,
+        p2_nodes = excluded.p2_nodes,
+        eval_nodes = excluded.eval_nodes,
+        board_size = excluded.board_size,
+        min_pairs = excluded.min_pairs,
+        max_pairs = excluded.max_pairs,
+        repeat_index = excluded.repeat_index,
+        seed = excluded.seed,
+        updated_at = CURRENT_TIMESTAMP
     `),
     updateRun: db.prepare(`
       UPDATE runs SET
@@ -46,16 +123,21 @@ const init = (db) => {
         p2_elo = @p2_elo, p2_erf = @p2_erf, p2_total_time_ms = @p2_time,
         p2_crashes = @p2_crashes, p2_cma = @p2_cma, p2_blunder = @p2_blunder,
         is_done = @is_done,
+        timed_out = @timed_out,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = @id
     `),
     getRunById: db.prepare('SELECT * FROM runs WHERE id = ?'),
+    reviveRun: db.prepare(
+      'UPDATE runs SET is_done = 0, timed_out = 0, updated_at = CURRENT_TIMESTAMP WHERE id = @id AND (is_done = 1 OR timed_out = 1)'
+    ),
     getAllRuns: db.prepare('SELECT * FROM runs ORDER BY updated_at DESC LIMIT 50'),
     getLatestGame: db.prepare('SELECT id FROM games ORDER BY id DESC LIMIT 1'),
     getAllPlayers: db.prepare('SELECT id, name, version FROM players'),
     getRunsForMatchups: db.prepare(`
       SELECT
         r.id as tournamentId,
+        r.id as runId,
         r.p1_name, r.p1_version,
         r.p2_name, r.p2_version,
         r.wins, r.losses, r.draws, r.games_played,
@@ -95,6 +177,11 @@ const init = (db) => {
          AND created_at < datetime('now', '-60 seconds')
          AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = r.id)`
     ),
+    deleteEmptyRun: db.prepare(
+      `DELETE FROM runs
+       WHERE id = @id
+         AND NOT EXISTS (SELECT 1 FROM games g WHERE g.run_id = runs.id)`
+    ),
     deleteRuns: db.prepare(
       `DELETE FROM runs
        WHERE games_played = 0
@@ -113,6 +200,29 @@ const init = (db) => {
     markStaleGamesAsCrashed: db.prepare(`
         UPDATE games SET winner_color = 4
         WHERE winner_color = 0 AND run_id IN (SELECT id FROM runs WHERE timed_out = 1)
+    `),
+    getGamesForIdentityRepair: db.prepare('SELECT id, external_id, run_id, tournament_id FROM games'),
+    updateGameIdentity: db.prepare(`UPDATE games SET ${gameIdentityAssignments} WHERE id = @id`),
+    updateGameIdentityRevive: db.prepare(
+      `UPDATE games SET ${gameIdentityAssignments}, winner_color = CASE WHEN winner_color = 4 THEN 0 ELSE winner_color END, moves = CASE WHEN winner_color = 4 THEN '' ELSE moves END, duration = CASE WHEN winner_color = 4 THEN 0 ELSE duration END WHERE id = @id`
+    ),
+    renameRun: db.prepare(`
+      UPDATE runs SET id = @to, updated_at = CURRENT_TIMESTAMP
+      WHERE id = @from AND NOT EXISTS (SELECT 1 FROM runs WHERE id = @to)
+    `),
+    mergeRunMetrics: db.prepare(`
+      UPDATE runs SET
+        ${mergeRunMetricAssignments},
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = @to AND EXISTS (SELECT 1 FROM runs WHERE id = @from)
+    `),
+    getGamesByRunForIdentityRepair: db.prepare(
+      'SELECT id, external_id, run_id, tournament_id FROM games WHERE run_id = @id OR (run_id IS NULL AND tournament_id = @id)'
+    ),
+    getRunAlias: db.prepare('SELECT run_id FROM run_aliases WHERE alias = ?'),
+    insertRunAlias: db.prepare(`
+      INSERT INTO run_aliases (alias, run_id) VALUES (@alias, @run_id)
+      ON CONFLICT(alias) DO UPDATE SET run_id = excluded.run_id
     `)
   };
 };
@@ -135,6 +245,7 @@ const getGamesDynamic = ({ hero, villain, tid, runId, limit, offset, orderBy }) 
           'move_count', CASE WHEN moves IS NULL OR moves = '' THEN 0 ELSE LENGTH(moves) - LENGTH(REPLACE(moves, ';', '')) + 1 END,
           'timestamp', timestamp, 'external_id', external_id,
           'black_id', black_id, 'white_id', white_id, 'tournament_id', tournament_id,
+          'run_id', run_id,
           'opening_len', opening_len,
           'duration', duration
         )) as games_json
@@ -159,17 +270,28 @@ export const getGameDetails = (id) => stmts.getGameDetails.get(id);
 export const insertRun = (r) => stmts.insertRun.run(r);
 export const updateRun = (r) => stmts.updateRun.run(r);
 export const getRunById = (id) => stmts.getRunById.get(id);
+export const reviveRun = (id) => stmts.reviveRun.run({ id });
 export const getAllRuns = () => stmts.getAllRuns.all();
 export const getLatestGame = () => stmts.getLatestGame.get();
 export const getRunsForMatchups = (limit, offset) =>
   stmts.getRunsForMatchups.all({ limit, offset });
 export const getAllPlayers = () => stmts.getAllPlayers.all();
 export const getExpiredRunIds = () => stmts.getExpiredRunIds.all();
+export const deleteEmptyRun = (id) => stmts.deleteEmptyRun.run({ id });
 export const deleteRuns = () => stmts.deleteRuns.run();
 export const markStaleRuns = () => stmts.markStaleRuns.run();
 export const markStaleGamesAsCrashed = () => stmts.markStaleGamesAsCrashed.run();
 export const getStaleRunIds = () => stmts.getStaleRunIds.all();
 export const getStaleGameIds = () => stmts.getStaleGameIds.all();
+export const getGamesForIdentityRepair = () => stmts.getGamesForIdentityRepair.all();
+export const getGamesByRunForIdentityRepair = (runId) =>
+  stmts.getGamesByRunForIdentityRepair.all({ id: runId });
+export const updateGameIdentity = (g) => stmts.updateGameIdentity.run(g);
+export const updateGameIdentityRevive = (g) => stmts.updateGameIdentityRevive.run(g);
+export const renameRun = (from, to) => stmts.renameRun.run({ from, to });
+export const mergeRunMetrics = (from, to) => stmts.mergeRunMetrics.run({ from, to });
+export const getRunAlias = (alias) => stmts.getRunAlias.get(alias);
+export const insertRunAlias = (alias, runId) => stmts.insertRunAlias.run({ alias, run_id: runId });
 export const getRunOffset = (id) => stmts.getRunOffset.get({ id });
 export const getGameGroupMaxId = (groupId) => stmts.getGameGroupMaxId.get(groupId);
 export const getGameGroupOffset = (runId, targetMaxId) =>

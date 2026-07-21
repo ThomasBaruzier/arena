@@ -1,3 +1,17 @@
+export const parseExternalGameId = (externalId = '') => {
+  externalId = externalId == null ? '' : String(externalId);
+  const last = externalId.lastIndexOf('_');
+  const candidateGroupId = last >= 0 ? externalId.substring(0, last) : externalId;
+  const prev = candidateGroupId.lastIndexOf('_');
+  const inferredRunId = prev >= 0 ? candidateGroupId.substring(0, prev) : candidateGroupId;
+  const valid = inferredRunId ? /^_\d+_\d+$/.test(externalId.slice(inferredRunId.length)) : false;
+  return {
+    groupId: valid ? candidateGroupId : externalId,
+    inferredRunId,
+    valid
+  };
+};
+
 export const compareVersions = (p1, p2) => {
   const nameDiff = p2.name.localeCompare(p1.name);
   if (nameDiff !== 0) return nameDiff;

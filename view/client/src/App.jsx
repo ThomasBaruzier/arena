@@ -1,14 +1,21 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Menu, Swords, X, Loader } from 'lucide-react';
 import { useEventSource } from './hooks/useEventSource';
 import { useMatchups, useRuns } from './hooks/useData';
 import { useGamePlayback } from './hooks/useGamePlayback';
-import { parseMoves, matchupKey } from './utils';
+import { parseMoves, matchupKey, getRunId } from './utils';
 import Board from './components/Board';
 import ControlDeck from './components/ControlDeck';
 import MatchGroup from './components/MatchGroup';
+import MatchBar from './components/MatchBar';
 
 const API_BASE = '/api';
+
+const keyPlayerPair = (key) => key?.match(/-(\d+)-(\d+)$/)?.[0] ?? null;
+const keyRunId = (key) => {
+  const pair = keyPlayerPair(key);
+  return key && pair ? key.slice(0, -pair.length) : null;
+};
 
 export default function App() {
   const [selectedId, setSelectedId] = useState(null);
@@ -33,6 +40,19 @@ export default function App() {
   const parsedMoves = useMemo(() => (movesStr ? parseMoves(movesStr) : []), [movesStr]);
   const playback = useGamePlayback(parsedMoves.length);
   const { setMoveIndex, setIsPlaying, moveIndex, isPlaying } = playback;
+  const runsById = useMemo(() => new Map(runs.map((r) => [String(r.id), r])), [runs]);
+
+  const applyLoadedGame = useCallback(
+    (data, { stopPlayback = false } = {}) => {
+      setGame(data);
+      setMoveIndex(parseMoves(data.moves).length);
+      if (stopPlayback) setIsPlaying(false);
+    },
+    [setMoveIndex, setIsPlaying]
+  );
+
+  const fetchGame = useCallback((id, options = {}) =>
+    fetch(`${API_BASE}/game/${id}`, options).then((r) => (r.ok ? r.json() : Promise.reject())), []);
 
   useEffect(() => {
     const urlId = parseInt(window.location.pathname.slice(1));
@@ -59,14 +79,9 @@ export default function App() {
     loadRef.current.abort = controller;
     const reqId = ++loadRef.current.id;
 
-    fetch(`${API_BASE}/game/${selectedId}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+    fetchGame(selectedId, { signal: controller.signal })
       .then((data) => {
-        if (reqId === loadRef.current.id) {
-          setGame(data);
-          setMoveIndex(parseMoves(data.moves).length);
-          setIsPlaying(false);
-        }
+        if (reqId === loadRef.current.id) applyLoadedGame(data, { stopPlayback: true });
       })
       .catch(() => {});
 
@@ -75,15 +90,39 @@ export default function App() {
       if (window.innerWidth < 800) setSidebarOpen(false);
     }
     return () => controller.abort();
-  }, [selectedId, initializing, setMoveIndex, setIsPlaying]);
+  }, [selectedId, initializing, applyLoadedGame]);
 
   useEffect(() => {
     if (!selectedId) return;
     return subscribe((e) => {
-      if (e.id !== selectedId) return;
-      if (e.type === 'game_move') setGame((g) => ({ ...g, moves: e.moves }));
-      if (e.type === 'game_result')
-        setGame((g) => ({ ...g, winner_color: e.winner_color, moves: e.moves || g.moves }));
+      const eventId = e.game?.id ?? e.id;
+      if (eventId !== selectedId) return;
+      switch (e.type) {
+        case 'game_start':
+          setGame((g) => ({ ...g, ...e.game }));
+          break;
+        case 'game_move':
+          setGame((g) => ({
+            ...g,
+            group_id: e.group_id ?? g?.group_id,
+            tournament_id: e.tournament_id ?? g?.tournament_id,
+            run_id: e.run_id ?? g?.run_id,
+            moves: e.moves,
+            duration: e.duration ?? g?.duration
+          }));
+          break;
+        case 'game_result':
+          setGame((g) => ({
+            ...g,
+            group_id: e.group_id ?? g?.group_id,
+            tournament_id: e.tournament_id ?? g?.tournament_id,
+            run_id: e.run_id ?? g?.run_id,
+            winner_color: e.winner_color,
+            moves: e.moves ?? g?.moves ?? '',
+            duration: e.duration ?? g?.duration
+          }));
+          break;
+      }
     });
   }, [selectedId, subscribe]);
 
@@ -92,6 +131,22 @@ export default function App() {
       setMoveIndex(parsedMoves.length);
     }
   }, [game, isPlaying, parsedMoves.length, moveIndex, setMoveIndex]);
+
+  useEffect(() => {
+    const matchupKeys = matchups.map(matchupKey);
+    const keys = new Set(matchupKeys);
+    const remapKey = (key) => {
+      if (!key || keys.has(key)) return key;
+      const pair = keyPlayerPair(key);
+      const runId = keyRunId(key);
+      const candidates = matchupKeys.filter((k) => keyPlayerPair(k) === pair);
+      const canonical = candidates.find((k) => runId && keyRunId(k)?.startsWith(`${runId}_`));
+      if (canonical) return canonical;
+      return candidates.length === 1 ? candidates[0] : null;
+    };
+    setExpanded((key) => remapKey(key));
+    setPending((key) => remapKey(key));
+  }, [matchups]);
 
   const matchupsSentinelRef = useRef(null);
   useEffect(() => {
@@ -109,17 +164,13 @@ export default function App() {
   useEffect(() => {
     if (prevConnectedRef.current === false && isConnected === true) {
       if (selectedId)
-        fetch(`${API_BASE}/game/${selectedId}`)
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((data) => {
-            setGame(data);
-            setMoveIndex(parseMoves(data.moves).length);
-          })
+        fetchGame(selectedId)
+          .then((data) => applyLoadedGame(data))
           .catch(() => {});
       loadMore(true);
     }
     prevConnectedRef.current = isConnected;
-  }, [isConnected, selectedId, loadMore, setMoveIndex]);
+  }, [isConnected, selectedId, loadMore, applyLoadedGame]);
 
   if (initializing)
     return (
@@ -131,39 +182,6 @@ export default function App() {
       </div>
     );
 
-  const renderMatchBar = () => {
-    if (!game) return <div className="placeholder-text">Select a match</div>;
-    const isBlackP1 = game.black_is_p1 ?? true;
-    return (
-      <div className="match-bar">
-        <div className="player-left">
-          <span className="p-ver">{isBlackP1 ? game.black_ver : game.white_ver}</span>
-          <span className={`p-name ${game.winner_color === 1 ? 'gold' : ''}`}>
-            {isBlackP1 ? game.black_name : game.white_name}
-          </span>
-          <div className={`p-color ${isBlackP1 ? 'black' : 'white'}`} />
-        </div>
-        <div className="score-center">
-          {game.winner_color === 0 ? (
-            <span className="live-tag">LIVE</span>
-          ) : game.winner_color === 3 ? (
-            <span className="final-score">½ - ½</span>
-          ) : (
-            <span className="final-score">
-              {game.winner_color === 1 ? 1 : 0} - {game.winner_color === 2 ? 1 : 0}
-            </span>
-          )}
-        </div>
-        <div className="player-right">
-          <div className={`p-color ${isBlackP1 ? 'white' : 'black'}`} />
-          <span className={`p-name ${game.winner_color === 2 ? 'gold' : ''}`}>
-            {isBlackP1 ? game.white_name : game.black_name}
-          </span>
-          <span className="p-ver">{isBlackP1 ? game.white_ver : game.black_ver}</span>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="app">
@@ -190,7 +208,7 @@ export default function App() {
               <MatchGroup
                 key={key}
                 group={g}
-                run={runs.find((r) => r.id === g.tournamentId)}
+                run={runsById.get(String(getRunId(g)))}
                 selectedGameId={selectedId}
                 onSelectGame={setSelectedId}
                 subscribe={subscribe}
@@ -226,7 +244,7 @@ export default function App() {
           <button className="menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
             <Menu size={20} />
           </button>
-          {renderMatchBar()}
+          <MatchBar game={game} />
         </header>
         <div className="stage">
           {game ? (
