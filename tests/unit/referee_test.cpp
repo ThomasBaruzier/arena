@@ -76,6 +76,20 @@ TEST_F(RefereeTest, LastMoverLeg1) {
     EXPECT_EQ(ref->get_last_mover_bot_id(), 2);
 }
 
+TEST_F(RefereeTest, RunStartUsesOriginalBotOrderForLeg1) {
+    p.leg = 1;
+    p.p1_cfg.cmd = "bot2";
+    p.p2_cfg.cmd = "bot1";
+    ref = std::make_unique<Game::Referee>(
+        p, nullptr, stats, TestHelpers::make_handler()
+    );
+
+    ref->send_run_start_event_if_needed(p.context);
+
+    EXPECT_EQ(p.context->p1_name, "bot1");
+    EXPECT_EQ(p.context->p2_name, "bot2");
+}
+
 TEST_F(RefereeTest, BoardFullDetection) {
     for (int i = 0; i < 225; ++i) ref->board_[i] = 1;
     ref->moves_ = 225;

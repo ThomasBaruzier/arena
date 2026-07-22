@@ -343,8 +343,10 @@ void Referee::send_run_start_event_if_needed(std::shared_ptr<App::RunContext> ct
     std::lock_guard<std::mutex> l(ctx->name_mtx);
     if (ctx->names_set) return;
     ctx->names_set = true;
-    ctx->p1_name = pl1_.name(); ctx->p1_version = pl1_.version();
-    ctx->p2_name = pl2_.name(); ctx->p2_version = pl2_.version();
+    auto& run_p1 = (p_.leg == 0) ? pl1_ : pl2_;
+    auto& run_p2 = (p_.leg == 0) ? pl2_ : pl1_;
+    ctx->p1_name = run_p1.name(); ctx->p1_version = run_p1.version();
+    ctx->p2_name = run_p2.name(); ctx->p2_version = run_p2.version();
 
     if (auto api = api_) {
         Net::ApiManager::Event e;
