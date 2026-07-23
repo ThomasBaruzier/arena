@@ -29,6 +29,10 @@ const ensureRepairedRun = (runId, gameId) => {
   repo.insertRun({
     id: runId,
     ...getRunPlayers(details),
+    p1_cmd: existing?.p1_cmd ?? null,
+    p1_mtime: existing?.p1_mtime ?? null,
+    p2_cmd: existing?.p2_cmd ?? null,
+    p2_mtime: existing?.p2_mtime ?? null,
     config_label: existing?.config_label || 'repaired',
     total_games: existing?.total_games || 0,
     p1_nodes: existing?.p1_nodes || 0,

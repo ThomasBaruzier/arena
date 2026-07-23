@@ -17,7 +17,7 @@ const betterRunMetricsCondition = `
   (${sourceColumn('games_played')} = games_played AND
    ${sourceColumn('wins + losses + draws')} > wins + losses + draws)
 `;
-const mergeRunMetricAssignments = ['p1_name', 'p1_version', 'p2_name', 'p2_version']
+const mergeRunMetricAssignments = ['p1_name', 'p1_version', 'p1_cmd', 'p1_mtime', 'p2_name', 'p2_version', 'p2_cmd', 'p2_mtime']
   .map((column) => copyColumn(column, placeholderRunWithPlayersCondition))
   .concat(
     [
@@ -91,17 +91,21 @@ const init = (db) => {
     `),
     insertRun: db.prepare(`
       INSERT INTO runs (
-        id, p1_name, p1_version, p2_name, p2_version, config_label, total_games,
+        id, p1_name, p1_version, p1_cmd, p1_mtime, p2_name, p2_version, p2_cmd, p2_mtime, config_label, total_games,
         p1_nodes, p2_nodes, eval_nodes, board_size, min_pairs, max_pairs, repeat_index, seed
       ) VALUES (
-        @id, @p1_name, @p1_version, @p2_name, @p2_version, @config_label, @total_games,
+        @id, @p1_name, @p1_version, @p1_cmd, @p1_mtime, @p2_name, @p2_version, @p2_cmd, @p2_mtime, @config_label, @total_games,
         @p1_nodes, @p2_nodes, @eval_nodes, @board_size, @min_pairs, @max_pairs, @repeat_index, @seed
       )
       ON CONFLICT(id) DO UPDATE SET
         p1_name = excluded.p1_name,
         p1_version = excluded.p1_version,
+        p1_cmd = excluded.p1_cmd,
+        p1_mtime = excluded.p1_mtime,
         p2_name = excluded.p2_name,
         p2_version = excluded.p2_version,
+        p2_cmd = excluded.p2_cmd,
+        p2_mtime = excluded.p2_mtime,
         config_label = excluded.config_label,
         total_games = excluded.total_games,
         p1_nodes = excluded.p1_nodes,
@@ -138,8 +142,8 @@ const init = (db) => {
       SELECT
         r.id as tournamentId,
         r.id as runId,
-        r.p1_name, r.p1_version,
-        r.p2_name, r.p2_version,
+        r.p1_name, r.p1_version, r.p1_cmd, r.p1_mtime,
+        r.p2_name, r.p2_version, r.p2_cmd, r.p2_mtime,
         r.wins, r.losses, r.draws, r.games_played,
         r.updated_at,
         r.p1_elo, r.p2_elo,

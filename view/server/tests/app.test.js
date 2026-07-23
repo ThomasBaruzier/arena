@@ -130,6 +130,145 @@ describe('Gomoku API Integration', () => {
     expect([res.body[0].hero.name, res.body[0].villain.name]).toEqual(['Agent', 'Shrek']);
   });
 
+  it('lets metadata-less run_start correct a reversed start-created placeholder', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set('x-api-key', 'secret')
+      .send([
+        {
+          type: 'start',
+          external_id: 'placeholder_correct_1_1',
+          run_id: 'placeholder_correct',
+          p1n: 'agent',
+          p1v: '0.3.3',
+          p2n: 'agent',
+          p2v: '0.3.4'
+        },
+        {
+          type: 'run_start',
+          run_id: 'placeholder_correct',
+          p1n: 'agent',
+          p1v: '0.3.4',
+          p2n: 'agent',
+          p2v: '0.3.3',
+          total_games: 128
+        },
+        { type: 'run_update', run_id: 'placeholder_correct', wins: 15, losses: 6, draws: 43, games_played: 128 }
+      ])
+      .expect(200);
+
+    const runs = await request(app).get('/api/runs').expect(200);
+    expect(runs.body[0].p1_version).toBe('0.3.4');
+    expect(runs.body[0].p2_version).toBe('0.3.3');
+
+    const matchups = await request(app).get('/api/matchups').expect(200);
+    expect(matchups.body[0].hero.version).toBe('0.3.4');
+    expect(matchups.body[0].heroWins).toBe(15);
+    expect(matchups.body[0].villainWins).toBe(6);
+  });
+
+  it('keeps canonical run_start identity when a reversed leg start arrives later', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set('x-api-key', 'secret')
+      .send([
+        {
+          type: 'run_start',
+          run_id: 'canonical_slots',
+          p1_name: 'agent',
+          p1_version: '0.3.4',
+          p1_cmd: './pbrain-gomoku-ai',
+          p1_mtime: 200,
+          p2_name: 'agent',
+          p2_version: '0.3.3',
+          p2_cmd: '/tmp/opencode/agent-0.3.3',
+          p2_mtime: 100,
+          total_games: 128
+        },
+        {
+          type: 'start',
+          external_id: 'canonical_slots_1_1',
+          run_id: 'canonical_slots',
+          p1n: 'agent',
+          p1v: '0.3.3',
+          p2n: 'agent',
+          p2v: '0.3.4'
+        },
+        { type: 'run_update', run_id: 'canonical_slots', wins: 15, losses: 6, draws: 43, games_played: 128 }
+      ])
+      .expect(200);
+
+    const runs = await request(app).get('/api/runs').expect(200);
+    expect(runs.body[0].p1_version).toBe('0.3.4');
+    expect(runs.body[0].p2_version).toBe('0.3.3');
+    expect(runs.body[0].wins).toBe(15);
+
+    const matchups = await request(app).get('/api/matchups').expect(200);
+    expect(matchups.body[0].hero.version).toBe('0.3.4');
+    expect(matchups.body[0].heroWins).toBe(15);
+    expect(matchups.body[0].villainWins).toBe(6);
+  });
+
+  it('preserves canonical executable metadata when later run_start lacks it', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set('x-api-key', 'secret')
+      .send([
+        {
+          type: 'run_start',
+          run_id: 'metadata_preserve',
+          p1n: 'agent',
+          p1v: '0.3',
+          p1_cmd: './agent',
+          p1_mtime: 100,
+          p2n: 'shrek',
+          p2v: '6.2',
+          p2_cmd: './shrek',
+          p2_mtime: 200,
+          total_games: 10
+        },
+        { type: 'run_start', run_id: 'metadata_preserve', p1n: 'agent', p1v: '0.3', p2n: 'shrek', p2v: '6.2' },
+        { type: 'run_start', run_id: 'metadata_preserve', p1n: 'shrek', p1v: '6.2', p2n: 'agent', p2v: '0.3' },
+        { type: 'run_update', run_id: 'metadata_preserve', wins: 3, losses: 1, draws: 2, games_played: 6 }
+      ])
+      .expect(200);
+
+    const runs = await request(app).get('/api/runs').expect(200);
+    expect(runs.body[0].p1_mtime).toBe(100);
+    expect(runs.body[0].p2_mtime).toBe(200);
+
+    const matchups = await request(app).get('/api/matchups').expect(200);
+    expect(matchups.body[0].hero.name).toBe('shrek');
+    expect(matchups.body[0].heroWins).toBe(1);
+    expect(matchups.body[0].villainWins).toBe(3);
+  });
+
+  it('uses mtime to choose hero for different bot names without changing slot1 result perspective', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set('x-api-key', 'secret')
+      .send([
+        {
+          type: 'run_start',
+          run_id: 'mtime_order',
+          p1n: 'agent',
+          p1v: '0.3',
+          p1_mtime: 100,
+          p2n: 'shrek',
+          p2v: '6.2',
+          p2_mtime: 200,
+          total_games: 10
+        },
+        { type: 'run_update', run_id: 'mtime_order', wins: 3, losses: 1, draws: 2, games_played: 6 }
+      ])
+      .expect(200);
+
+    const matchups = await request(app).get('/api/matchups').expect(200);
+    expect(matchups.body[0].hero.name).toBe('shrek');
+    expect(matchups.body[0].heroWins).toBe(1);
+    expect(matchups.body[0].villainWins).toBe(3);
+  });
+
   it('handles run updates', async () => {
     const start = {
       type: 'run_start',

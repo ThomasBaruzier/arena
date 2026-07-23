@@ -88,6 +88,33 @@ describe('matchupsReducer', () => {
     expect(next[0].total).toBe(11);
   });
 
+  it('realigns hero identity and totals when run_update has mtime ordering', () => {
+    const state = [baseMatchup];
+    const next = matchupsReducer(state, {
+      type: 'run_update',
+      event: {
+        run: {
+          id: 'run_full',
+          p1_name: 'agent',
+          p1_version: '0.3',
+          p1_mtime: 100,
+          p2_name: 'shrek',
+          p2_version: '6.2',
+          p2_mtime: 200,
+          wins: 4,
+          losses: 2,
+          draws: 5,
+          games_played: 11
+        }
+      }
+    });
+
+    expect(next[0].hero.name).toBe('shrek');
+    expect(next[0].villain.name).toBe('agent');
+    expect(next[0].heroWins).toBe(2);
+    expect(next[0].villainWins).toBe(4);
+  });
+
   it('increments live count when canonical start replaces a completed legacy row', () => {
     const state = [{ ...baseMatchup, tournamentId: 'run', runId: 'run', live_count: 0 }];
     const next = matchupsReducer(state, {

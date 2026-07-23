@@ -28,6 +28,8 @@ namespace Arena::Net {
     public:
         struct Event {
             std::string type, ext_id, p1_name, p1v, p2_name, p2v, moves;
+            std::string p1_cmd, p2_cmd;
+            std::optional<long long> p1_mtime, p2_mtime;
             int x = 0, y = 0, c = 0, winner = 0, op_len = 0;
             long duration = 0;
             bool shutdown = false;

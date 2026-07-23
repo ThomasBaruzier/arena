@@ -235,6 +235,12 @@ std::string ApiManager::build_event_json(const Event& e) {
         js.add_str("p1_version", e.p1v);
         js.add_str("p2_name", e.p2_name);
         js.add_str("p2_version", e.p2v);
+        js.add_str("p1_cmd", e.p1_cmd);
+        js.add_str("p2_cmd", e.p2_cmd);
+        if (e.p1_mtime) js.add("p1_mtime", *e.p1_mtime);
+        else js.add_null("p1_mtime");
+        if (e.p2_mtime) js.add("p2_mtime", *e.p2_mtime);
+        else js.add_null("p2_mtime");
         js.add_str("config_label", e.config_label);
         js.add("total_games", e.total_games);
         js.add("p1_nodes", e.p1_nodes);

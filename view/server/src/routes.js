@@ -3,7 +3,7 @@ import * as db from './db.js';
 import * as repo from './repository.js';
 import sse from './sse.js';
 import { API_KEY } from './config.js';
-import { compareVersions, parseExternalGameId } from './utils.js';
+import { compareHeroOrder, parseExternalGameId } from './utils.js';
 
 const router = express.Router();
 
@@ -35,8 +35,12 @@ const getRunPlayers = (p1Name, p1Ver, p2Name, p2Ver, blackIsP1 = true) =>
 const getEventPlayers = (e) => ({
   p1Name: e.p1_name || e.p1n || 'Unknown',
   p1Ver: e.p1_version || e.p1v || '0.0',
+  p1Cmd: e.p1_cmd ?? null,
+  p1Mtime: e.p1_mtime ?? null,
   p2Name: e.p2_name || e.p2n || 'Unknown',
-  p2Ver: e.p2_version || e.p2v || '0.0'
+  p2Ver: e.p2_version || e.p2v || '0.0',
+  p2Cmd: e.p2_cmd ?? null,
+  p2Mtime: e.p2_mtime ?? null
 });
 
 const ensurePlayers = ({ p1Name, p1Ver, p2Name, p2Ver }) => {
@@ -44,12 +48,43 @@ const ensurePlayers = ({ p1Name, p1Ver, p2Name, p2Ver }) => {
   getPlayerId(p2Name, p2Ver);
 };
 
+const hasExecutableMetadata = (players) =>
+  players.p1Cmd != null || players.p1Mtime != null || players.p2Cmd != null || players.p2Mtime != null;
+
+const runHasExecutableMetadata = (run) =>
+  run?.p1_cmd != null || run?.p1_mtime != null || run?.p2_cmd != null || run?.p2_mtime != null;
+
+const isPlaceholderRun = (run) =>
+  run?.config_label === 'repaired' ||
+  (run?.config_label === 'live' &&
+    Number(run?.total_games || 0) === 0 &&
+    Number(run?.p1_nodes || 0) === 0 &&
+    Number(run?.p2_nodes || 0) === 0 &&
+    Number(run?.eval_nodes || 0) === 0 &&
+    Number(run?.min_pairs || 0) === 0 &&
+    Number(run?.max_pairs || 0) === 0);
+
+const getExistingRunPlayers = (run) => ({
+  p1Name: run.p1_name,
+  p1Ver: run.p1_version,
+  p1Cmd: run.p1_cmd,
+  p1Mtime: run.p1_mtime,
+  p2Name: run.p2_name,
+  p2Ver: run.p2_version,
+  p2Cmd: run.p2_cmd,
+  p2Mtime: run.p2_mtime
+});
+
 const buildRunRecord = (id, players, e, defaults) => ({
   id,
   p1_name: players.p1Name,
   p1_version: players.p1Ver,
+  p1_cmd: players.p1Cmd ?? defaults.p1_cmd ?? null,
+  p1_mtime: players.p1Mtime ?? defaults.p1_mtime ?? null,
   p2_name: players.p2Name,
   p2_version: players.p2Ver,
+  p2_cmd: players.p2Cmd ?? defaults.p2_cmd ?? null,
+  p2_mtime: players.p2Mtime ?? defaults.p2_mtime ?? null,
   config_label: defaults.config_label,
   total_games: defaults.total_games,
   p1_nodes: e.p1_nodes ?? defaults.p1_nodes ?? 0,
@@ -197,19 +232,24 @@ router.post('/batch', auth, (req, res) => {
           const runId = resolveRunId(rawRunId, runAliases);
           const existingRun = repo.getRunById(runId);
           const rawPlayers = getEventPlayers(e);
-          const players =
-            existingRun && (rawPlayers.p1Name === 'Unknown' || rawPlayers.p2Name === 'Unknown')
-              ? {
-                  p1Name: existingRun.p1_name,
-                  p1Ver: existingRun.p1_version,
-                  p2Name: existingRun.p2_name,
-                  p2Ver: existingRun.p2_version
-                }
-              : rawPlayers;
+          const hasExistingPlayers = existingRun && existingRun.p1_name !== 'Unknown' && existingRun.p2_name !== 'Unknown';
+          const shouldPreserveExistingPlayers =
+            existingRun &&
+            (rawPlayers.p1Name === 'Unknown' ||
+              rawPlayers.p2Name === 'Unknown' ||
+              (hasExistingPlayers &&
+                runHasExecutableMetadata(existingRun) &&
+                !hasExecutableMetadata(rawPlayers) &&
+                !isPlaceholderRun(existingRun)));
+          const players = shouldPreserveExistingPlayers ? getExistingRunPlayers(existingRun) : rawPlayers;
           ensurePlayers(players);
 
           repo.insertRun(
             buildRunRecord(runId, players, e, {
+              p1_cmd: existingRun?.p1_cmd,
+              p1_mtime: existingRun?.p1_mtime,
+              p2_cmd: existingRun?.p2_cmd,
+              p2_mtime: existingRun?.p2_mtime,
               config_label: e.config_label ?? existingRun?.config_label,
               total_games: e.total_games ?? existingRun?.total_games,
               p1_nodes: existingRun?.p1_nodes,
@@ -303,6 +343,10 @@ router.post('/batch', auth, (req, res) => {
           const startRunRecord = {
             id: runId,
             ...getRunPlayers(p1Name, p1Ver, p2Name, p2Ver, e.black_is_p1 !== false),
+            p1_cmd: existingRun?.p1_cmd ?? null,
+            p1_mtime: existingRun?.p1_mtime ?? null,
+            p2_cmd: existingRun?.p2_cmd ?? null,
+            p2_mtime: existingRun?.p2_mtime ?? null,
             config_label: existingRun?.config_label ?? 'live',
             total_games: existingRun?.total_games ?? 0,
             p1_nodes: existingRun?.p1_nodes ?? 0,
@@ -529,9 +573,9 @@ router.get('/matchups', (req, res) => {
   const runs = repo.getRunsForMatchups(limit, offset);
 
   const result = runs.map((r) => {
-    const p1 = { id: r.p1_id || 0, name: r.p1_name, version: r.p1_version };
-    const p2 = { id: r.p2_id || 0, name: r.p2_name, version: r.p2_version };
-    const p1IsHero = compareVersions(p1, p2) >= 0;
+    const p1 = { id: r.p1_id || 0, name: r.p1_name, version: r.p1_version, cmd: r.p1_cmd, mtime: r.p1_mtime };
+    const p2 = { id: r.p2_id || 0, name: r.p2_name, version: r.p2_version, cmd: r.p2_cmd, mtime: r.p2_mtime };
+    const p1IsHero = compareHeroOrder(p1, p2) >= 0;
 
     return {
       tournamentId: r.tournamentId,

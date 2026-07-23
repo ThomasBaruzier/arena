@@ -44,8 +44,12 @@ export const init = (dbPath) => {
       id TEXT PRIMARY KEY,
       p1_name TEXT,
       p1_version TEXT,
+      p1_cmd TEXT,
+      p1_mtime INTEGER,
       p2_name TEXT,
       p2_version TEXT,
+      p2_cmd TEXT,
+      p2_mtime INTEGER,
       config_label TEXT,
       total_games INTEGER DEFAULT 0,
       games_played INTEGER DEFAULT 0,
@@ -92,6 +96,15 @@ export const init = (dbPath) => {
     CREATE INDEX IF NOT EXISTS idx_games_run ON games(run_id);
     CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at);
   `);
+
+  const runColumns = db.prepare('PRAGMA table_info(runs)').all().map((column) => column.name);
+  const addRunColumn = (name, definition) => {
+    if (!runColumns.includes(name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${definition}`);
+  };
+  addRunColumn('p1_cmd', 'TEXT');
+  addRunColumn('p1_mtime', 'INTEGER');
+  addRunColumn('p2_cmd', 'TEXT');
+  addRunColumn('p2_mtime', 'INTEGER');
 
   return db;
 };

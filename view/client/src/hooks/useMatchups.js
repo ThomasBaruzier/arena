@@ -1,5 +1,5 @@
 import { useState, useEffect, useReducer, useCallback, useRef } from 'react';
-import { matchupKey, compareVersions } from '../utils';
+import { matchupKey, compareHeroOrder } from '../utils';
 
 const API_BASE = '/api';
 
@@ -30,7 +30,7 @@ const matchupsReducer = (state, action) => {
       }
       const p1 = { id: e.game.black_id, name: e.game.black_name, version: e.game.black_ver };
       const p2 = { id: e.game.white_id, name: e.game.white_name, version: e.game.white_ver };
-      const isP1Hero = compareVersions(p1, p2) >= 0;
+      const isP1Hero = compareHeroOrder(p1, p2) >= 0;
       return [
         {
           tournamentId: tid,
@@ -53,13 +53,29 @@ const matchupsReducer = (state, action) => {
       return state.map((m) => {
         if (m.tournamentId !== tid) return m;
 
+        let hero = m.hero;
+        let villain = m.villain;
         let heroWins = m.heroWins;
         let villainWins = m.villainWins;
 
         if (typeof run.wins === 'number' && run.p1_name) {
-          const p1 = { name: run.p1_name, version: run.p1_version };
-          const p2 = { name: run.p2_name, version: run.p2_version };
-          const p1IsHero = compareVersions(p1, p2) >= 0;
+          const p1 = {
+            id: m.hero.name === run.p1_name && m.hero.version === run.p1_version ? m.hero.id : m.villain.id,
+            name: run.p1_name,
+            version: run.p1_version,
+            cmd: run.p1_cmd,
+            mtime: run.p1_mtime
+          };
+          const p2 = {
+            id: m.hero.name === run.p2_name && m.hero.version === run.p2_version ? m.hero.id : m.villain.id,
+            name: run.p2_name,
+            version: run.p2_version,
+            cmd: run.p2_cmd,
+            mtime: run.p2_mtime
+          };
+          const p1IsHero = compareHeroOrder(p1, p2) >= 0;
+          hero = p1IsHero ? p1 : p2;
+          villain = p1IsHero ? p2 : p1;
           heroWins = p1IsHero ? run.wins : run.losses;
           villainWins = p1IsHero ? run.losses : run.wins;
         } else if (typeof run.wins === 'number') {
@@ -69,6 +85,8 @@ const matchupsReducer = (state, action) => {
 
         return {
           ...m,
+          hero,
+          villain,
           heroWins,
           villainWins,
           draws: run.draws ?? m.draws,

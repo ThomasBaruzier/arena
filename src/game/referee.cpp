@@ -5,8 +5,50 @@
 #include "../sys/cpu_monitor.h"
 #include "../sys/signals.h"
 #include <iomanip>
+#include <chrono>
+#include <optional>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <wordexp.h>
 
 namespace Arena::Game {
+
+namespace {
+    std::optional<std::string> resolve_executable_path(const std::string& cmd) {
+        wordexp_t words;
+        if (wordexp(cmd.c_str(), &words, WRDE_NOCMD) != 0) return std::nullopt;
+        if (words.we_wordc == 0) {
+            wordfree(&words);
+            return std::nullopt;
+        }
+
+        std::string path = words.we_wordv[0];
+        wordfree(&words);
+
+        if (path.find('/') != std::string::npos) return path;
+        if (access(path.c_str(), X_OK) == 0) return "./" + path;
+
+        const char* path_env = getenv("PATH");
+        if (!path_env) return path;
+
+        std::stringstream paths(path_env);
+        std::string dir;
+        while (std::getline(paths, dir, ':')) {
+            std::string candidate = dir + "/" + path;
+            if (access(candidate.c_str(), X_OK) == 0) return candidate;
+        }
+        return path;
+    }
+
+    std::optional<long long> executable_mtime_ms(const std::string& cmd) {
+        auto path = resolve_executable_path(cmd);
+        if (!path) return std::nullopt;
+
+        struct stat st;
+        if (stat(path->c_str(), &st) != 0) return std::nullopt;
+        return static_cast<long long>(st.st_mtim.tv_sec) * 1000LL + st.st_mtim.tv_nsec / 1000000LL;
+    }
+}
 
 Referee::Referee(
     App::GameParams p,
@@ -353,6 +395,9 @@ void Referee::send_run_start_event_if_needed(std::shared_ptr<App::RunContext> ct
         e.type = "run_start"; e.run_id = ctx->id;
         e.p1_name = ctx->p1_name; e.p1v = ctx->p1_version;
         e.p2_name = ctx->p2_name; e.p2v = ctx->p2_version;
+        e.p1_cmd = run_p1.path(); e.p2_cmd = run_p2.path();
+        e.p1_mtime = executable_mtime_ms(e.p1_cmd);
+        e.p2_mtime = executable_mtime_ms(e.p2_cmd);
         e.config_label = ctx->config_label; e.total_games = ctx->total_games_expected;
         e.p1_nodes = ctx->run_spec.p1_nodes; e.p2_nodes = ctx->run_spec.p2_nodes;
         e.eval_nodes = ctx->run_spec.eval_nodes; e.board_size = ctx->cfg.board_size;

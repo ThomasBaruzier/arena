@@ -64,6 +64,10 @@ TEST_F(ApiTest, RunStartEvent) {
     e.run_id = "run123";
     e.p1_name = "bot1"; e.p1v = "v1";
     e.p2_name = "bot2"; e.p2v = "v2";
+    e.p1_cmd = "./bot1";
+    e.p2_cmd = "./bot2";
+    e.p1_mtime = 1000;
+    e.p2_mtime = 2000;
     e.config_label = "test_conf";
     e.total_games = 100;
     e.p1_nodes = 1000;
@@ -79,6 +83,10 @@ TEST_F(ApiTest, RunStartEvent) {
     EXPECT_NE(json.find("\"type\":\"run_start\""), std::string::npos);
     EXPECT_NE(json.find("\"run_id\":\"run123\""), std::string::npos);
     EXPECT_NE(json.find("\"p1_nodes\":1000"), std::string::npos);
+    EXPECT_NE(json.find("\"p1_cmd\":\".\\/bot1\""), std::string::npos);
+    EXPECT_NE(json.find("\"p1_mtime\":1000"), std::string::npos);
+    EXPECT_NE(json.find("\"p2_cmd\":\".\\/bot2\""), std::string::npos);
+    EXPECT_NE(json.find("\"p2_mtime\":2000"), std::string::npos);
     EXPECT_NE(json.find("\"seed\":12345"), std::string::npos);
 }
 
