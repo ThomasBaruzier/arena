@@ -430,9 +430,8 @@ void Referee::validate_opening_move(const Core::Point& m) {
 void Referee::send_start_event() {
     if (!api_) return;
     auto e = create_event("start");
-    e.p1_name = pl1_.name(); e.p1v = pl1_.version();
-    e.p2_name = pl2_.name(); e.p2v = pl2_.version();
-    e.run_id = p_.run_id; e.black_is_p1 = true;
+    e.black_slot = (p_.leg == 0) ? 1 : 2;
+    e.white_slot = (p_.leg == 0) ? 2 : 1;
     e.op_len = get_opening_size();
     api_->enqueue(e);
     start_sent_ = true;

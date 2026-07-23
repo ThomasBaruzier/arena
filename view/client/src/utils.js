@@ -83,13 +83,8 @@ export const getRunId = (value) => value?.runId || value?.run_id || null;
 
 export const getEventRunId = (event) => event?.game?.run_id || event?.run_id || event?.run?.id || null;
 
-export const playerPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+export const slotPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 
-export const samePlayerPair = (a, b, c, d) => playerPairKey(a, b) === playerPairKey(c, d);
+export const sameSlotPair = (a, b, c, d) => slotPairKey(a, b) === slotPairKey(c, d);
 
-export const matchupKey = (m) => {
-  const tid = getRunId(m);
-  const minId = Math.min(m.hero.id, m.villain.id);
-  const maxId = Math.max(m.hero.id, m.villain.id);
-  return `${tid}-${minId}-${maxId}`;
-};
+export const matchupKey = (m) => getRunId(m);

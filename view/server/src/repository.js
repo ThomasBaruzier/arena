@@ -4,14 +4,22 @@ let dbInstance = null;
 const init = (db) => {
   dbInstance = db;
   stmts = {
-    insertPlayer: db.prepare(
-      'INSERT INTO players (name, version) VALUES (@name, @version) ON CONFLICT(name, version) DO NOTHING'
-    ),
-    getPlayerId: db.prepare('SELECT id FROM players WHERE name = @name AND version = @version'),
+    insertRun: db.prepare(`
+      INSERT INTO runs (
+        id, config_label, total_games, p1_nodes, p2_nodes, eval_nodes,
+        board_size, min_pairs, max_pairs, repeat_index, seed
+      ) VALUES (
+        @id, @config_label, @total_games, @p1_nodes, @p2_nodes, @eval_nodes,
+        @board_size, @min_pairs, @max_pairs, @repeat_index, @seed
+      )
+    `),
+    insertRunSlot: db.prepare(`
+      INSERT INTO run_slots (run_id, slot, name, version, cmd, mtime)
+      VALUES (@run_id, @slot, @name, @version, @cmd, @mtime)
+    `),
     insertGame: db.prepare(`
-      INSERT INTO games (
-        external_id, group_id, black_id, white_id, run_id, black_is_p1, opening_len
-      ) VALUES (@external_id, @group_id, @black_id, @white_id, @run_id, @black_is_p1, @opening_len)
+      INSERT INTO games (external_id, group_id, run_id, black_slot, white_slot, opening_len)
+      VALUES (@external_id, @group_id, @run_id, @black_slot, @white_slot, @opening_len)
     `),
     getGameByExt: db.prepare('SELECT * FROM games WHERE external_id = ?'),
     updateGameFull: db.prepare(
@@ -20,22 +28,13 @@ const init = (db) => {
     getGameDetails: db.prepare(`
       SELECT
         g.id, g.external_id, g.group_id, g.timestamp, g.moves, g.winner_color,
-        g.run_id, g.black_is_p1, g.opening_len, g.duration,
-        p1.id as black_id, p1.name as black_name, p1.version as black_ver,
-        p2.id as white_id, p2.name as white_name, p2.version as white_ver
+        g.run_id, g.black_slot, g.white_slot, g.opening_len, g.duration,
+        bs.name as black_name, bs.version as black_ver, bs.cmd as black_cmd, bs.mtime as black_mtime,
+        ws.name as white_name, ws.version as white_ver, ws.cmd as white_cmd, ws.mtime as white_mtime
       FROM games g
-      JOIN players p1 ON g.black_id = p1.id
-      JOIN players p2 ON g.white_id = p2.id
+      JOIN run_slots bs ON bs.run_id = g.run_id AND bs.slot = g.black_slot
+      JOIN run_slots ws ON ws.run_id = g.run_id AND ws.slot = g.white_slot
       WHERE g.id = ?
-    `),
-    insertRun: db.prepare(`
-      INSERT INTO runs (
-        id, p1_name, p1_version, p1_cmd, p1_mtime, p2_name, p2_version, p2_cmd, p2_mtime, config_label, total_games,
-        p1_nodes, p2_nodes, eval_nodes, board_size, min_pairs, max_pairs, repeat_index, seed
-      ) VALUES (
-        @id, @p1_name, @p1_version, @p1_cmd, @p1_mtime, @p2_name, @p2_version, @p2_cmd, @p2_mtime, @config_label, @total_games,
-        @p1_nodes, @p2_nodes, @eval_nodes, @board_size, @min_pairs, @max_pairs, @repeat_index, @seed
-      )
     `),
     updateRun: db.prepare(`
       UPDATE runs SET
@@ -50,14 +49,32 @@ const init = (db) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = @id
     `),
-    getRunById: db.prepare('SELECT * FROM runs WHERE id = ?'),
-    getAllRuns: db.prepare('SELECT * FROM runs ORDER BY updated_at DESC LIMIT 50'),
+    getRunById: db.prepare(`
+      SELECT
+        r.*,
+        s1.name as slot1_name, s1.version as slot1_version, s1.cmd as slot1_cmd, s1.mtime as slot1_mtime,
+        s2.name as slot2_name, s2.version as slot2_version, s2.cmd as slot2_cmd, s2.mtime as slot2_mtime
+      FROM runs r
+      LEFT JOIN run_slots s1 ON s1.run_id = r.id AND s1.slot = 1
+      LEFT JOIN run_slots s2 ON s2.run_id = r.id AND s2.slot = 2
+      WHERE r.id = ?
+    `),
+    getAllRuns: db.prepare(`
+      SELECT
+        r.*,
+        s1.name as slot1_name, s1.version as slot1_version, s1.cmd as slot1_cmd, s1.mtime as slot1_mtime,
+        s2.name as slot2_name, s2.version as slot2_version, s2.cmd as slot2_cmd, s2.mtime as slot2_mtime
+      FROM runs r
+      LEFT JOIN run_slots s1 ON s1.run_id = r.id AND s1.slot = 1
+      LEFT JOIN run_slots s2 ON s2.run_id = r.id AND s2.slot = 2
+      ORDER BY r.updated_at DESC LIMIT 50
+    `),
     getLatestGame: db.prepare('SELECT id FROM games ORDER BY id DESC LIMIT 1'),
     getRunsForMatchups: db.prepare(`
       SELECT
         r.id as runId,
-        r.p1_name, r.p1_version, r.p1_cmd, r.p1_mtime,
-        r.p2_name, r.p2_version, r.p2_cmd, r.p2_mtime,
+        s1.name as slot1_name, s1.version as slot1_version, s1.cmd as slot1_cmd, s1.mtime as slot1_mtime,
+        s2.name as slot2_name, s2.version as slot2_version, s2.cmd as slot2_cmd, s2.mtime as slot2_mtime,
         r.wins, r.losses, r.draws, r.games_played,
         r.updated_at,
         r.p1_elo, r.p2_elo,
@@ -67,18 +84,17 @@ const init = (db) => {
         r.p1_cma, r.p2_cma,
         r.p1_blunder, r.p2_blunder,
         r.timed_out,
-        (SELECT COUNT(*) FROM games g WHERE g.run_id = r.id AND g.winner_color = 0) as live_count,
-        p1.id as p1_id, p2.id as p2_id
+        (SELECT COUNT(*) FROM games g WHERE g.run_id = r.id AND g.winner_color = 0) as live_count
       FROM runs r
-      LEFT JOIN players p1 ON r.p1_name = p1.name AND r.p1_version = p1.version
-      LEFT JOIN players p2 ON r.p2_name = p2.name AND r.p2_version = p2.version
+      JOIN run_slots s1 ON s1.run_id = r.id AND s1.slot = 1
+      JOIN run_slots s2 ON s2.run_id = r.id AND s2.slot = 2
       ORDER BY r.updated_at DESC, r.id DESC
       LIMIT @limit OFFSET @offset
     `)
   };
 };
 
-const getGamesDynamic = ({ hero, villain, runId, limit, offset, orderBy }) => {
+const getGamesDynamic = ({ runId, heroSlot, limit, offset, orderBy }) => {
   if (!dbInstance) throw new Error('Repository not initialized');
   const sql = `
     SELECT * FROM (
@@ -89,35 +105,33 @@ const getGamesDynamic = ({ hero, villain, runId, limit, offset, orderBy }) => {
         SUM(CASE WHEN winner_color = 0 THEN 1 ELSE 0 END) as live_count,
         MAX(duration) as duration,
         SUM(CASE WHEN winner_color != 0 AND winner_color != 3 AND winner_color != 4 AND (
-          (winner_color = 1 AND black_id = @hero) OR (winner_color = 2 AND white_id = @hero)
+          (winner_color = 1 AND black_slot = @heroSlot) OR (winner_color = 2 AND white_slot = @heroSlot)
         ) THEN 1 ELSE 0 END) as hero_wins,
         json_group_array(json_object(
           'id', id, 'winner_color', winner_color,
           'move_count', CASE WHEN moves IS NULL OR moves = '' THEN 0 ELSE LENGTH(moves) - LENGTH(REPLACE(moves, ';', '')) + 1 END,
           'timestamp', timestamp, 'external_id', external_id,
-          'black_id', black_id, 'white_id', white_id,
+          'black_slot', black_slot, 'white_slot', white_slot,
           'run_id', run_id,
           'opening_len', opening_len,
           'duration', duration
         )) as games_json
       FROM games
-      WHERE (@hero = 0 OR (black_id = @hero AND white_id = @villain) OR (black_id = @villain AND white_id = @hero))
-        ${runId ? 'AND run_id = @runId' : ''}
+      WHERE run_id = @runId
       GROUP BY group_id
     )
     ORDER BY ${orderBy} LIMIT @limit OFFSET @offset
   `;
-  return dbInstance.prepare(sql).all({ hero, villain, runId, limit, offset });
+  return dbInstance.prepare(sql).all({ runId, heroSlot, limit, offset });
 };
 
 export { init };
-export const insertPlayer = (p) => stmts.insertPlayer.run(p);
-export const getPlayerId = (p) => stmts.getPlayerId.get(p);
+export const insertRun = (r) => stmts.insertRun.run(r);
+export const insertRunSlot = (slot) => stmts.insertRunSlot.run(slot);
 export const insertGame = (g) => stmts.insertGame.run(g);
 export const getGameByExt = (id) => stmts.getGameByExt.get(id);
 export const updateGameFull = (g) => stmts.updateGameFull.run(g);
 export const getGameDetails = (id) => stmts.getGameDetails.get(id);
-export const insertRun = (r) => stmts.insertRun.run(r);
 export const updateRun = (r) => stmts.updateRun.run(r);
 export const getRunById = (id) => stmts.getRunById.get(id);
 export const getAllRuns = () => stmts.getAllRuns.all();

@@ -1,5 +1,5 @@
 import { useState, useEffect, useReducer, useCallback } from 'react';
-import { matchupKey, compareHeroOrder, getEventRunId, getRunId, playerPairKey, samePlayerPair } from '../utils';
+import { matchupKey, compareHeroOrder, getEventRunId, getRunId, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
 const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'game_result']);
@@ -18,9 +18,7 @@ export const matchupsReducer = (state, action) => {
       if (!e.game) return state;
       const tid = getEventRunId(e);
       if (!tid) return state;
-      const pairKey = playerPairKey(e.game.black_id, e.game.white_id);
-      const eventKey = `${tid}-${pairKey}`;
-      const idx = state.findIndex((m) => matchupKey(m) === eventKey);
+      const idx = state.findIndex((m) => sameId(getRunId(m), tid));
       if (idx !== -1) {
         const updated = {
           ...state[idx],
@@ -30,8 +28,8 @@ export const matchupsReducer = (state, action) => {
         };
         return [updated, ...state.filter((_, i) => i !== idx)];
       }
-      const p1 = { id: e.game.black_id, name: e.game.black_name, version: e.game.black_ver };
-      const p2 = { id: e.game.white_id, name: e.game.white_name, version: e.game.white_ver };
+      const p1 = { id: `${tid}:1`, slot: 1, name: e.game.black_slot === 1 ? e.game.black_name : e.game.white_name, version: e.game.black_slot === 1 ? e.game.black_ver : e.game.white_ver };
+      const p2 = { id: `${tid}:2`, slot: 2, name: e.game.black_slot === 2 ? e.game.black_name : e.game.white_name, version: e.game.black_slot === 2 ? e.game.black_ver : e.game.white_ver };
       const isP1Hero = compareHeroOrder(p1, p2) >= 0;
       return [
         {
@@ -58,26 +56,28 @@ export const matchupsReducer = (state, action) => {
         let villain = m.villain;
         let heroWins = m.heroWins;
         let villainWins = m.villainWins;
-        if (typeof run.wins === 'number' && run.p1_name) {
-          const p1 = {
-            id: m.hero.name === run.p1_name && m.hero.version === run.p1_version ? m.hero.id : m.villain.id,
-            name: run.p1_name,
-            version: run.p1_version,
-            cmd: run.p1_cmd,
-            mtime: run.p1_mtime
+        if (typeof run.wins === 'number' && run.slot1_name) {
+          const slot1 = {
+            id: `${tid}:1`,
+            slot: 1,
+            name: run.slot1_name,
+            version: run.slot1_version,
+            cmd: run.slot1_cmd,
+            mtime: run.slot1_mtime
           };
-          const p2 = {
-            id: m.hero.name === run.p2_name && m.hero.version === run.p2_version ? m.hero.id : m.villain.id,
-            name: run.p2_name,
-            version: run.p2_version,
-            cmd: run.p2_cmd,
-            mtime: run.p2_mtime
+          const slot2 = {
+            id: `${tid}:2`,
+            slot: 2,
+            name: run.slot2_name,
+            version: run.slot2_version,
+            cmd: run.slot2_cmd,
+            mtime: run.slot2_mtime
           };
-          const p1IsHero = compareHeroOrder(p1, p2) >= 0;
-          hero = p1IsHero ? p1 : p2;
-          villain = p1IsHero ? p2 : p1;
-          heroWins = p1IsHero ? run.wins : run.losses;
-          villainWins = p1IsHero ? run.losses : run.wins;
+          const slot1IsHero = compareHeroOrder(slot1, slot2) >= 0;
+          hero = slot1IsHero ? slot1 : slot2;
+          villain = slot1IsHero ? slot2 : slot1;
+          heroWins = slot1IsHero ? run.wins : run.losses;
+          villainWins = slot1IsHero ? run.losses : run.wins;
         } else if (typeof run.wins === 'number') {
           heroWins = run.wins;
           villainWins = run.losses;
@@ -100,7 +100,7 @@ export const matchupsReducer = (state, action) => {
       return state.map((m) => {
         const isMatch =
           sameId(getRunId(m), tid) &&
-          samePlayerPair(m.hero.id, m.villain.id, e.black_id, e.white_id);
+          sameSlotPair(m.hero.slot, m.villain.slot, e.black_slot, e.white_slot);
         if (!isMatch) return m;
         return {
           ...m,

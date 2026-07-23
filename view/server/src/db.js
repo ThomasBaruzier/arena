@@ -13,35 +13,19 @@ export const init = (dbPath) => {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
-    const assertFreshSchema = () => {
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((row) => row.name);
+  const assertFreshSchema = () => {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
     if (tables.length === 0) return;
 
     const version = db.pragma('user_version', { simple: true });
-    if (version !== 1) throw new Error('Unsupported viewer database schema: reset the viewer database');
+    if (version !== 2) throw new Error('Unsupported viewer database schema: reset the viewer database');
   };
 
   assertFreshSchema();
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS players (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      version TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(name, version)
-    );
-
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT NOT NULL PRIMARY KEY,
-      p1_name TEXT NOT NULL,
-      p1_version TEXT NOT NULL,
-      p1_cmd TEXT,
-      p1_mtime INTEGER,
-      p2_name TEXT NOT NULL,
-      p2_version TEXT NOT NULL,
-      p2_cmd TEXT,
-      p2_mtime INTEGER,
       config_label TEXT NOT NULL,
       total_games INTEGER NOT NULL DEFAULT 0,
       games_played INTEGER NOT NULL DEFAULT 0,
@@ -75,40 +59,47 @@ export const init = (dbPath) => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS run_slots (
+      run_id TEXT NOT NULL,
+      slot INTEGER NOT NULL CHECK(slot IN (1, 2)),
+      name TEXT NOT NULL,
+      version TEXT NOT NULL,
+      cmd TEXT,
+      mtime INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(run_id, slot),
+      FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS games (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       external_id TEXT NOT NULL UNIQUE,
       group_id TEXT NOT NULL,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      black_id INTEGER NOT NULL,
-      white_id INTEGER NOT NULL,
       winner_color INTEGER NOT NULL DEFAULT 0,
       moves TEXT NOT NULL DEFAULT '',
       run_id TEXT NOT NULL,
-      black_is_p1 INTEGER NOT NULL DEFAULT 1,
+      black_slot INTEGER NOT NULL CHECK(black_slot IN (1, 2)),
+      white_slot INTEGER NOT NULL CHECK(white_slot IN (1, 2)),
       opening_len INTEGER NOT NULL DEFAULT 0,
       duration INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY(black_id) REFERENCES players(id),
-      FOREIGN KEY(white_id) REFERENCES players(id),
+      CHECK(black_slot <> white_slot),
       FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_games_players ON games(black_id, white_id);
     CREATE INDEX IF NOT EXISTS idx_games_timestamp ON games(timestamp);
     CREATE INDEX IF NOT EXISTS idx_games_group ON games(group_id);
     CREATE INDEX IF NOT EXISTS idx_games_run ON games(run_id);
     CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at);
   `);
 
-  db.pragma('user_version = 1');
+  db.pragma('user_version = 2');
 
   return db;
 };
 
 export const getDb = () => db;
-
 export const prepare = (sql) => db.prepare(sql);
-
 export const transaction = (fn) => db.transaction(fn);
 
 export const close = () => {

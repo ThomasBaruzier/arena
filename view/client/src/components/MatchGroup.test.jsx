@@ -9,13 +9,13 @@ describe('pairsReducer', () => {
         id: 1,
         group_id: 'run_1',
         winner_color: 1,
-        black_id: 10,
-        white_id: 20,
+        black_slot: 1,
+        white_slot: 2,
         moves: '10,10,1;11,11,2',
         timestamp: '2026-01-01T00:00:00Z'
       },
       sort: { col: 'id', asc: false },
-      heroId: 10
+      heroSlot: 1
     });
 
     expect(next).toHaveLength(1);

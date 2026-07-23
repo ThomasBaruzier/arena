@@ -31,11 +31,11 @@ namespace Arena::Net {
             std::string p1_cmd, p2_cmd;
             std::optional<long long> p1_mtime, p2_mtime;
             int x = 0, y = 0, c = 0, winner = 0, op_len = 0;
+            int black_slot = 0, white_slot = 0;
             long duration = 0;
             bool shutdown = false;
             std::string run_id, config_label;
             int total_games = 0;
-            bool black_is_p1 = true;
             int games_played = 0;
             int wins = 0, losses = 0, draws = 0;
             long long wall_time_ms = 0;

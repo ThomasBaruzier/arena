@@ -219,16 +219,23 @@ std::string ApiManager::build_event_json(const Event& e) {
     if (e.type == "run_start") {
         js.add_str("type", "run_start");
         js.add_str("run_id", e.run_id);
-        js.add_str("p1_name", e.p1_name);
-        js.add_str("p1_version", e.p1v);
-        js.add_str("p2_name", e.p2_name);
-        js.add_str("p2_version", e.p2v);
-        js.add_str("p1_cmd", e.p1_cmd);
-        js.add_str("p2_cmd", e.p2_cmd);
-        if (e.p1_mtime) js.add("p1_mtime", *e.p1_mtime);
-        else js.add_null("p1_mtime");
-        if (e.p2_mtime) js.add("p2_mtime", *e.p2_mtime);
-        else js.add_null("p2_mtime");
+        JsonStream slot1;
+        slot1.add("slot", 1);
+        slot1.add_str("name", e.p1_name);
+        slot1.add_str("version", e.p1v);
+        slot1.add_str("cmd", e.p1_cmd);
+        if (e.p1_mtime) slot1.add("mtime", *e.p1_mtime);
+        else slot1.add_null("mtime");
+
+        JsonStream slot2;
+        slot2.add("slot", 2);
+        slot2.add_str("name", e.p2_name);
+        slot2.add_str("version", e.p2v);
+        slot2.add_str("cmd", e.p2_cmd);
+        if (e.p2_mtime) slot2.add("mtime", *e.p2_mtime);
+        else slot2.add_null("mtime");
+
+        js.add_raw("slots", "[" + slot1.str() + "," + slot2.str() + "]");
         js.add_str("config_label", e.config_label);
         js.add("total_games", e.total_games);
         js.add("p1_nodes", e.p1_nodes);
@@ -266,11 +273,8 @@ std::string ApiManager::build_event_json(const Event& e) {
         js.add_str("external_id", e.ext_id);
         if (!e.run_id.empty()) js.add_str("run_id", e.run_id);
         if (e.type == "start") {
-            js.add_str("p1n", e.p1_name);
-            js.add_str("p1v", e.p1v);
-            js.add_str("p2n", e.p2_name);
-            js.add_str("p2v", e.p2v);
-            js.add("black_is_p1", e.black_is_p1 ? "true" : "false");
+            js.add("black_slot", e.black_slot);
+            js.add("white_slot", e.white_slot);
             js.add("op_len", e.op_len);
         } else if (e.type == "move") {
             js.add("x", e.x);

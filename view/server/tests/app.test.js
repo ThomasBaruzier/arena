@@ -8,6 +8,11 @@ import os from 'os';
 
 const auth = { 'x-api-key': 'secret' };
 
+const slots = (slot1 = {}, slot2 = {}) => [
+  { slot: 1, name: 'A', version: '1.0', ...slot1 },
+  { slot: 2, name: 'B', version: '1.0', ...slot2 }
+];
+
 describe('Gomoku API Integration', () => {
   let app;
   let tmpDir;
@@ -35,7 +40,7 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'start', external_id: 'missing_1_0', run_id: 'missing', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
+        { type: 'start', external_id: 'missing_1_0', run_id: 'missing', black_slot: 1, white_slot: 2 },
         { type: 'run_update', run_id: 'missing', wins: 1, games_played: 1 }
       ])
       .expect(200);
@@ -49,12 +54,12 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: 'r1', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0', total_games: 2 },
-        { type: 'start', external_id: 'r1_1_0', run_id: 'r1', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
+        { type: 'run_start', run_id: 'r1', slots: [{ slot: 1, name: 'A', version: '1.0' }, { slot: 2, name: 'B', version: '1.0' }], total_games: 2 },
+        { type: 'start', external_id: 'r1_1_0', run_id: 'r1', black_slot: 1, white_slot: 2 },
         { type: 'move', external_id: 'r1_1_0', run_id: 'r1', x: 10, y: 10, c: 1 },
         { type: 'move', external_id: 'r1_1_0', run_id: 'r1', x: 11, y: 11, c: 2 },
         { type: 'result', external_id: 'r1_1_0', run_id: 'r1', winner: 1 },
-        { type: 'start', external_id: 'r1_1_1', run_id: 'r1', p1n: 'B', p1v: '1.0', p2n: 'A', p2v: '1.0' },
+        { type: 'start', external_id: 'r1_1_1', run_id: 'r1', black_slot: 2, white_slot: 1 },
         { type: 'result', external_id: 'r1_1_1', run_id: 'r1', winner: 1 },
         { type: 'run_update', run_id: 'r1', wins: 1, losses: 1, draws: 0, games_played: 2 }
       ])
@@ -78,8 +83,8 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: 'guard', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
-        { type: 'start', external_id: 'guard_1_0', run_id: 'guard', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
+        { type: 'run_start', run_id: 'guard', slots: slots() },
+        { type: 'start', external_id: 'guard_1_0', run_id: 'guard', black_slot: 1, white_slot: 2 },
         { type: 'move', external_id: 'guard_1_0', x: 1, y: 1, c: 1 },
         { type: 'move', external_id: 'guard_1_0', run_id: 'wrong', x: 2, y: 2, c: 2 },
         { type: 'move', external_id: 'guard_1_0', run_id: 'guard', x: 3, y: 3, c: 1 },
@@ -100,10 +105,10 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: 'dup', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
-        { type: 'start', external_id: 'dup_1_0', run_id: 'dup', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
+        { type: 'run_start', run_id: 'dup', slots: slots() },
+        { type: 'start', external_id: 'dup_1_0', run_id: 'dup', black_slot: 1, white_slot: 2 },
         { type: 'move', external_id: 'dup_1_0', run_id: 'dup', x: 1, y: 1, c: 1 },
-        { type: 'start', external_id: 'dup_1_0', run_id: 'dup', p1n: 'A', p1v: '1.0', p2n: 'B', p2v: '1.0' },
+        { type: 'start', external_id: 'dup_1_0', run_id: 'dup', black_slot: 1, white_slot: 2 },
         { type: 'result', external_id: 'dup_1_0', run_id: 'dup', winner: 1 }
       ])
       .expect(200);
@@ -123,24 +128,20 @@ describe('Gomoku API Integration', () => {
         {
           type: 'run_start',
           run_id: 'canonical_slots',
-          p1_name: 'agent',
-          p1_version: '0.3.4',
-          p1_cmd: './pbrain-gomoku-ai',
-          p1_mtime: 200,
-          p2_name: 'agent',
-          p2_version: '0.3.3',
-          p2_cmd: '/tmp/opencode/agent-0.3.3',
-          p2_mtime: 100,
+          slots: slots(
+            { name: 'agent', version: '0.3.4', cmd: './pbrain-gomoku-ai', mtime: 200 },
+            { name: 'agent', version: '0.3.3', cmd: '/tmp/opencode/agent-0.3.3', mtime: 100 }
+          ),
           total_games: 128
         },
-        { type: 'start', external_id: 'canonical_slots_1_1', run_id: 'canonical_slots', p1n: 'agent', p1v: '0.3.3', p2n: 'agent', p2v: '0.3.4' },
+        { type: 'start', external_id: 'canonical_slots_1_1', run_id: 'canonical_slots', black_slot: 2, white_slot: 1 },
         { type: 'run_update', run_id: 'canonical_slots', wins: 15, losses: 6, draws: 43, games_played: 128 }
       ])
       .expect(200);
 
     const runs = await request(app).get('/api/runs').expect(200);
-    expect(runs.body[0].p1_version).toBe('0.3.4');
-    expect(runs.body[0].p2_version).toBe('0.3.3');
+    expect(runs.body[0].slot1_version).toBe('0.3.4');
+    expect(runs.body[0].slot2_version).toBe('0.3.3');
     expect(runs.body[0].wins).toBe(15);
 
     const matchups = await request(app).get('/api/matchups').expect(200);
@@ -154,7 +155,7 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: 'mtime_order', p1n: 'agent', p1v: '0.3', p1_mtime: 100, p2n: 'shrek', p2v: '6.2', p2_mtime: 200, total_games: 10 },
+        { type: 'run_start', run_id: 'mtime_order', slots: slots({ name: 'agent', version: '0.3', mtime: 100 }, { name: 'shrek', version: '6.2', mtime: 200 }), total_games: 10 },
         { type: 'run_update', run_id: 'mtime_order', wins: 3, losses: 1, draws: 2, games_played: 6 }
       ])
       .expect(200);
@@ -170,7 +171,7 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: 'metric_run', p1n: 'Bot1', p1v: '1.0', p2n: 'Bot2', p2v: '1.0' },
+        { type: 'run_start', run_id: 'metric_run', slots: slots({ name: 'Bot1' }, { name: 'Bot2' }) },
         { type: 'run_update', run_id: 'metric_run', p1_time: 123, p2_time: 456, p1_cma: 1.25, p2_blunder: 2.5, games_played: 1 },
         { type: 'run_update', run_id: 'metric_run', games_played: 2 }
       ])
@@ -190,8 +191,8 @@ describe('Gomoku API Integration', () => {
       .post('/api/batch')
       .set(auth)
       .send([
-        { type: 'run_start', run_id: runId, p1n: 'Agent', p1v: '0.3', p2n: 'Shrek', p2v: '6.2', total_games: 2 },
-        { type: 'start', external_id: `${runId}_12_0`, run_id: runId, p1n: 'Agent', p1v: '0.3', p2n: 'Shrek', p2v: '6.2' }
+        { type: 'run_start', run_id: runId, slots: slots({ name: 'Agent', version: '0.3' }, { name: 'Shrek', version: '6.2' }), total_games: 2 },
+        { type: 'start', external_id: `${runId}_12_0`, run_id: runId, black_slot: 1, white_slot: 2 }
       ])
       .expect(200);
 
@@ -207,7 +208,7 @@ describe('Gomoku API Integration', () => {
     await request(app)
       .post('/api/batch')
       .set(auth)
-      .send([{ type: 'run_start', run_id: 'run', p1n: 'Agent', p1v: '0.3', p2n: 'Shrek', p2v: '6.2' }])
+      .send([{ type: 'run_start', run_id: 'run', slots: slots({ name: 'Agent', version: '0.3' }, { name: 'Shrek', version: '6.2' }) }])
       .expect(200);
 
     await request(app).delete('/api/reset').set(auth).expect(200);

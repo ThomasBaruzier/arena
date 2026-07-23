@@ -3,8 +3,8 @@ import { matchupsReducer } from './useData';
 
 const baseMatchup = {
   runId: 'run_full',
-  hero: { id: 1, name: 'agent', version: '0.3' },
-  villain: { id: 2, name: 'shrek', version: '6.2' },
+  hero: { id: 'run_full:1', slot: 1, name: 'agent', version: '0.3' },
+  villain: { id: 'run_full:2', slot: 2, name: 'shrek', version: '6.2' },
   heroWins: 0,
   villainWins: 0,
   draws: 0,
@@ -22,8 +22,8 @@ describe('matchupsReducer', () => {
         game: {
           id: 10,
           run_id: 'run_full',
-          black_id: 1,
-          white_id: 2,
+          black_slot: 1,
+          white_slot: 2,
           black_name: 'agent',
           black_ver: '0.3',
           white_name: 'shrek',
@@ -45,10 +45,9 @@ describe('matchupsReducer', () => {
       type: 'game_result',
       event: {
         id: 10,
-          run_id: 'run_full',
-          black_id: 1,
-
-        white_id: 2,
+        run_id: 'run_full',
+        black_slot: 1,
+        white_slot: 2,
         winner_color: 3
       }
     });
@@ -68,10 +67,10 @@ describe('matchupsReducer', () => {
       event: {
         run: {
           id: 'run_full',
-          p1_name: 'agent',
-          p1_version: '0.3',
-          p2_name: 'shrek',
-          p2_version: '6.2',
+          slot1_name: 'agent',
+          slot1_version: '0.3',
+          slot2_name: 'shrek',
+          slot2_version: '6.2',
           wins: 4,
           losses: 2,
           draws: 5,
@@ -93,12 +92,12 @@ describe('matchupsReducer', () => {
       event: {
         run: {
           id: 'run_full',
-          p1_name: 'agent',
-          p1_version: '0.3',
-          p1_mtime: 100,
-          p2_name: 'shrek',
-          p2_version: '6.2',
-          p2_mtime: 200,
+          slot1_name: 'agent',
+          slot1_version: '0.3',
+          slot1_mtime: 100,
+          slot2_name: 'shrek',
+          slot2_version: '6.2',
+          slot2_mtime: 200,
           wins: 4,
           losses: 2,
           draws: 5,
@@ -108,8 +107,32 @@ describe('matchupsReducer', () => {
     });
 
     expect(next[0].hero.name).toBe('shrek');
+    expect(next[0].hero.slot).toBe(2);
     expect(next[0].villain.name).toBe('agent');
+    expect(next[0].villain.slot).toBe(1);
     expect(next[0].heroWins).toBe(2);
     expect(next[0].villainWins).toBe(4);
+  });
+
+  it('keeps same name/version slots distinct', () => {
+    const state = [{
+      ...baseMatchup,
+      hero: { id: 'mirror:1', slot: 1, name: 'agent', version: '0.3' },
+      villain: { id: 'mirror:2', slot: 2, name: 'agent', version: '0.3' },
+      runId: 'mirror',
+      live_count: 1
+    }];
+    const next = matchupsReducer(state, {
+      type: 'game_result',
+      event: {
+        id: 10,
+        run_id: 'mirror',
+        black_slot: 2,
+        white_slot: 1,
+        winner_color: 1
+      }
+    });
+
+    expect(next[0].live_count).toBe(0);
   });
 });

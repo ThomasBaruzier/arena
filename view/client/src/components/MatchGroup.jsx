@@ -1,6 +1,6 @@
 import { useState, useEffect, useReducer, useRef, useCallback } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, Loader } from 'lucide-react';
-import { getEventRunId, samePlayerPair } from '../utils';
+import { getEventRunId, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
 const SORT_COLUMNS = [
@@ -25,10 +25,9 @@ const sortGames = (games, { col, asc }) => {
 const getMoveCount = (g) =>
   g.move_count ?? (g.moves ? g.moves.split(';').filter(Boolean).length : 0);
 
-const isHeroWin = (g, heroId) => {
-  if (!heroId || g.winner_color === 0 || g.winner_color === 3 || g.winner_color === 4) return false;
-  const isHeroBlack = g.black_id === heroId;
-  return (g.winner_color === 1 && isHeroBlack) || (g.winner_color === 2 && !isHeroBlack);
+const isHeroWin = (g, heroSlot) => {
+  if (!heroSlot || g.winner_color === 0 || g.winner_color === 3 || g.winner_color === 4) return false;
+  return (g.winner_color === 1 && g.black_slot === heroSlot) || (g.winner_color === 2 && g.white_slot === heroSlot);
 };
 
 const sameGame = (a, b) =>
@@ -39,7 +38,7 @@ const sameGame = (a, b) =>
     b.external_id !== null &&
     a.external_id === b.external_id);
 
-const summarizePair = (pair, games, sort, heroId, latestTs = pair.latest_ts) => {
+const summarizePair = (pair, games, sort, heroSlot, latestTs = pair.latest_ts) => {
   const sortedGames = sortGames(games, sort);
   const movesList = sortedGames.map(getMoveCount);
   return {
@@ -50,7 +49,7 @@ const summarizePair = (pair, games, sort, heroId, latestTs = pair.latest_ts) => 
     max_moves: Math.max(...movesList),
     min_moves: Math.min(...movesList),
     live_count: sortedGames.filter((g) => g.winner_color === 0).length,
-    hero_wins: sortedGames.reduce((acc, g) => acc + (isHeroWin(g, heroId) ? 1 : 0), 0)
+    hero_wins: sortedGames.reduce((acc, g) => acc + (isHeroWin(g, heroSlot) ? 1 : 0), 0)
   };
 };
 
@@ -113,7 +112,7 @@ export const pairsReducer = (state, action) => {
       if (existing) {
         newState = stateWithoutGame.map((p) =>
           p.group_id === g.group_id
-            ? summarizePair(p, [...p.games, g], action.sort, action.heroId, g.timestamp)
+            ? summarizePair(p, [...p.games, g], action.sort, action.heroSlot, g.timestamp)
             : p
         );
       } else {
@@ -122,7 +121,7 @@ export const pairsReducer = (state, action) => {
             { group_id: g.group_id, latest_ts: g.timestamp, max_id: g.id, games: [] },
             [g],
             action.sort,
-            action.heroId,
+            action.heroSlot,
             g.timestamp
           ),
           ...state
@@ -172,7 +171,7 @@ export const pairsReducer = (state, action) => {
             target,
             [...target.games, updatedGame],
             action.sort,
-            action.heroId,
+            action.heroSlot,
             updatedGame.timestamp ?? target.latest_ts
           )
         );
@@ -224,8 +223,7 @@ export default function MatchGroup({
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const params = new URLSearchParams({
-        hero_id: group.hero.id,
-        villain_id: group.villain.id,
+        hero_slot: group.hero.slot,
         sort: sortConfig.col,
         order: sortConfig.asc ? 'asc' : 'desc',
         limit: 50,
@@ -247,7 +245,7 @@ export default function MatchGroup({
         .catch((e) => {
           if (e.name !== 'AbortError') setLoaded(false);
         });
-  }, [group.hero.id, group.villain.id, group.runId, onLoaded]
+  }, [group.hero.slot, group.runId, onLoaded]
 
   );
 
@@ -294,23 +292,19 @@ export default function MatchGroup({
     return subscribe((e) => {
       const tid = getEventRunId(e);
       if (String(tid) !== String(group.runId)) return;
-      const isMatch = (bId, wId) => samePlayerPair(group.hero.id, group.villain.id, bId, wId);
-      if (e.type === 'game_start' && e.game && isMatch(e.game.black_id, e.game.white_id)) {
-        dispatch({ type: 'game_start', game: e.game, sort, heroId: group.hero.id });
+      const isMatch = (blackSlot, whiteSlot) => sameSlotPair(group.hero.slot, group.villain.slot, blackSlot, whiteSlot);
+      if (e.type === 'game_start' && e.game && isMatch(e.game.black_slot, e.game.white_slot)) {
+        dispatch({ type: 'game_start', game: e.game, sort, heroSlot: group.hero.slot });
       }
       if ((e.type === 'game_move' || e.type === 'game_result') && e.group_id) {
-        dispatch({ type: 'game_update', event: e, sort, heroId: group.hero.id });
+        dispatch({ type: 'game_update', event: e, sort, heroSlot: group.hero.slot });
       }
     });
-  }, [open, loaded, group.hero.id, group.villain.id, group.runId, subscribe, sort]);
+  }, [open, loaded, group.hero.slot, group.villain.slot, group.runId, subscribe, sort]);
 
   const getStatusClass = (g) => {
     if (g.winner_color === 3) return 'res-dot draw';
-    if (group.hero.id === group.villain.id) {
-      const heroColor = g.external_id?.endsWith('_0') ? 1 : 2;
-      return g.winner_color === heroColor ? 'res-dot res-win' : 'res-dot res-loss';
-    }
-    return isHeroWin(g, group.hero.id) ? 'res-dot res-win' : 'res-dot res-loss';
+    return isHeroWin(g, group.hero.slot) ? 'res-dot res-win' : 'res-dot res-loss';
   };
 
   const showContent = open && loaded;

@@ -39,8 +39,11 @@ TEST_F(ApiTest, ResultEvent) {
 
 TEST_F(ApiTest, InjectionProtection) {
     Net::ApiManager::Event e;
-    e.type = "start";
+    e.type = "run_start";
     e.p1_name = "\", \"admin\": true";
+    e.p1v = "v1";
+    e.p2_name = "bot2";
+    e.p2v = "v2";
 
     std::string json = api->build_event_json(e);
     EXPECT_NE(json.find("\\\""), std::string::npos);
@@ -83,10 +86,13 @@ TEST_F(ApiTest, RunStartEvent) {
     EXPECT_NE(json.find("\"type\":\"run_start\""), std::string::npos);
     EXPECT_NE(json.find("\"run_id\":\"run123\""), std::string::npos);
     EXPECT_NE(json.find("\"p1_nodes\":1000"), std::string::npos);
-    EXPECT_NE(json.find("\"p1_cmd\":\".\\/bot1\""), std::string::npos);
-    EXPECT_NE(json.find("\"p1_mtime\":1000"), std::string::npos);
-    EXPECT_NE(json.find("\"p2_cmd\":\".\\/bot2\""), std::string::npos);
-    EXPECT_NE(json.find("\"p2_mtime\":2000"), std::string::npos);
+    EXPECT_NE(json.find("\"slots\":["), std::string::npos);
+    EXPECT_NE(json.find("\"slot\":1"), std::string::npos);
+    EXPECT_NE(json.find("\"cmd\":\".\\/bot1\""), std::string::npos);
+    EXPECT_NE(json.find("\"mtime\":1000"), std::string::npos);
+    EXPECT_NE(json.find("\"slot\":2"), std::string::npos);
+    EXPECT_NE(json.find("\"cmd\":\".\\/bot2\""), std::string::npos);
+    EXPECT_NE(json.find("\"mtime\":2000"), std::string::npos);
     EXPECT_NE(json.find("\"seed\":12345"), std::string::npos);
 }
 
@@ -151,7 +157,7 @@ TEST_F(ApiTest, LargeBatchFormat) {
 
 TEST_F(ApiTest, SpecialCharsInNames) {
     Net::ApiManager::Event e;
-    e.type = "start";
+    e.type = "run_start";
     e.p1_name = "bot\twith\ttabs";
     e.p2_name = "bot\nwith\nnewlines";
 
@@ -173,11 +179,11 @@ TEST_F(ApiTest, AllEventTypes) {
     Net::ApiManager::Event e1;
     e1.type = "start";
     e1.run_id = "r1";
-    e1.p1_name = "p1";
-    e1.p2_name = "p2";
-    e1.black_is_p1 = false;
+    e1.black_slot = 2;
+    e1.white_slot = 1;
     std::string json1 = api->build_event_json(e1);
-    EXPECT_NE(json1.find("\"black_is_p1\":false"), std::string::npos);
+    EXPECT_NE(json1.find("\"black_slot\":2"), std::string::npos);
+    EXPECT_NE(json1.find("\"white_slot\":1"), std::string::npos);
 
     Net::ApiManager::Event e2;
     e2.type = "move";
