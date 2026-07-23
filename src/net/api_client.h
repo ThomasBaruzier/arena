@@ -60,7 +60,6 @@ namespace Arena::Net {
         void reset();
 
     private:
-        std::string generate_session_id();
         void enqueue_shutdown();
         void loop();
 
@@ -73,7 +72,7 @@ namespace Arena::Net {
         std::string build_json_payload(const std::vector<Event>& batch);
         std::string build_event_json(const Event& e);
 
-        std::string url_, key_, sess_;
+        std::string url_, key_;
         int debounce_;
         std::thread worker_;
         std::mutex mtx_;

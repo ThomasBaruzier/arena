@@ -2,7 +2,7 @@ import { useState, useEffect, useReducer, useCallback } from 'react';
 import { matchupKey, compareHeroOrder, getEventRunId, getRunId, playerPairKey, samePlayerPair } from '../utils';
 
 const API_BASE = '/api';
-const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'run_delete', 'game_result']);
+const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'game_result']);
 const sameId = (a, b) => String(a) === String(b);
 
 export const matchupsReducer = (state, action) => {
@@ -17,36 +17,25 @@ export const matchupsReducer = (state, action) => {
       const e = action.event;
       if (!e.game) return state;
       const tid = getEventRunId(e);
+      if (!tid) return state;
       const pairKey = playerPairKey(e.game.black_id, e.game.white_id);
       const eventKey = `${tid}-${pairKey}`;
-      const legacyTid = e.game.tournament_id || 'legacy';
-      const legacyKey = `${legacyTid}-${pairKey}`;
-      const canonicalIdx = state.findIndex((m) => matchupKey(m) === eventKey);
-      const legacyIdx = state.findIndex((m) => matchupKey(m) === legacyKey);
-      const idx = canonicalIdx !== -1 ? canonicalIdx : legacyIdx;
+      const idx = state.findIndex((m) => matchupKey(m) === eventKey);
       if (idx !== -1) {
-        const isCanonicalMatch = matchupKey(state[idx]) === eventKey;
         const updated = {
           ...state[idx],
-          tournamentId: tid,
-          runId: e.game.run_id || tid,
+          runId: tid,
           lastActivity: e.game.timestamp,
-          live_count:
-            (state[idx].live_count || 0) +
-            (e.game.winner_color === 0 && !e.migration && (isCanonicalMatch || (state[idx].live_count || 0) === 0) ? 1 : 0)
+          live_count: (state[idx].live_count || 0) + (e.game.winner_color === 0 ? 1 : 0)
         };
-        return [
-          updated,
-          ...state.filter((_, i) => i !== idx && (canonicalIdx === -1 || i !== legacyIdx))
-        ];
+        return [updated, ...state.filter((_, i) => i !== idx)];
       }
       const p1 = { id: e.game.black_id, name: e.game.black_name, version: e.game.black_ver };
       const p2 = { id: e.game.white_id, name: e.game.white_name, version: e.game.white_ver };
       const isP1Hero = compareHeroOrder(p1, p2) >= 0;
       return [
         {
-          tournamentId: tid,
-          runId: e.game.run_id || tid,
+          runId: tid,
           hero: isP1Hero ? p1 : p2,
           villain: isP1Hero ? p2 : p1,
           heroWins: 0,
@@ -104,10 +93,6 @@ export const matchupsReducer = (state, action) => {
           total: run.games_played ?? m.total
         };
       });
-    }
-    case 'run_delete': {
-      const tid = action.event.run_id;
-      return state.filter((m) => !sameId(getRunId(m), tid));
     }
     case 'game_result': {
       const e = action.event;
@@ -200,8 +185,6 @@ export function useRuns(subscribe) {
         setRuns((p) => [e.run, ...p.filter((r) => !sameId(r.id, e.run.id))]);
       else if (e.type === 'run_update')
         setRuns((p) => p.map((r) => (sameId(r.id, e.run.id) ? { ...r, ...e.run } : r)));
-      else if (e.type === 'run_delete')
-        setRuns((p) => p.filter((r) => !sameId(r.id, e.run_id)));
     });
   }, [subscribe, fetchRuns]);
 

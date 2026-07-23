@@ -463,6 +463,7 @@ void Referee::send_result_event(double res, long duration) {
 Net::ApiManager::Event Referee::create_event(const std::string& type) {
     Net::ApiManager::Event e{};
     e.type = type;
+    e.run_id = p_.run_id;
     e.ext_id = p_.run_id + "_" + std::to_string(p_.pair) +
         "_" + std::to_string(p_.leg);
     return e;

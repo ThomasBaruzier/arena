@@ -1,15 +1,8 @@
-export const parseExternalGameId = (externalId = '') => {
+export const groupIdFromExternalId = (externalId = '') => {
   externalId = externalId == null ? '' : String(externalId);
   const last = externalId.lastIndexOf('_');
-  const candidateGroupId = last >= 0 ? externalId.substring(0, last) : externalId;
-  const prev = candidateGroupId.lastIndexOf('_');
-  const inferredRunId = prev >= 0 ? candidateGroupId.substring(0, prev) : candidateGroupId;
-  const valid = inferredRunId ? /^_\d+_\d+$/.test(externalId.slice(inferredRunId.length)) : false;
-  return {
-    groupId: valid ? candidateGroupId : externalId,
-    inferredRunId,
-    valid
-  };
+  const groupId = last >= 0 ? externalId.substring(0, last) : externalId;
+  return /^.+_\d+_\d+$/.test(externalId) ? groupId : externalId;
 };
 
 const parseVersion = (v) =>
@@ -37,11 +30,11 @@ export const compareHeroOrder = (p1, p2) => {
   if (p1.name === p2.name) {
     const versionDiff = compareVersionsOnly(p1.version, p2.version);
     if (versionDiff !== 0) return versionDiff;
-  } else {
-    const m1 = numericMtime(p1.mtime ?? p1.p1_mtime);
-    const m2 = numericMtime(p2.mtime ?? p2.p2_mtime);
-    if (m1 !== null && m2 !== null && m1 !== m2) return m1 - m2;
   }
+
+  const m1 = numericMtime(p1.mtime ?? p1.p1_mtime);
+  const m2 = numericMtime(p2.mtime ?? p2.p2_mtime);
+  if (m1 !== null && m2 !== null && m1 !== m2) return m1 - m2;
 
   const nameDiff = p2.name.localeCompare(p1.name);
   if (nameDiff !== 0) return nameDiff;

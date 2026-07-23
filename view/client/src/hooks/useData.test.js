@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { matchupsReducer } from './useData';
 
 const baseMatchup = {
-  tournamentId: 'run_full',
   runId: 'run_full',
   hero: { id: 1, name: 'agent', version: '0.3' },
   villain: { id: 2, name: 'shrek', version: '6.2' },
@@ -23,7 +22,6 @@ describe('matchupsReducer', () => {
         game: {
           id: 10,
           run_id: 'run_full',
-          tournament_id: 'run',
           black_id: 1,
           white_id: 2,
           black_name: 'agent',
@@ -38,7 +36,7 @@ describe('matchupsReducer', () => {
 
     expect(next).toHaveLength(1);
     expect(next[0].live_count).toBe(1);
-    expect(next[0].tournamentId).toBe('run_full');
+    expect(next[0].runId).toBe('run_full');
   });
 
   it('does not change authoritative W/L/D totals on game_result before run_update', () => {
@@ -47,9 +45,9 @@ describe('matchupsReducer', () => {
       type: 'game_result',
       event: {
         id: 10,
-        run_id: 'run_full',
-        tournament_id: 'run',
-        black_id: 1,
+          run_id: 'run_full',
+          black_id: 1,
+
         white_id: 2,
         winner_color: 3
       }
@@ -113,39 +111,5 @@ describe('matchupsReducer', () => {
     expect(next[0].villain.name).toBe('agent');
     expect(next[0].heroWins).toBe(2);
     expect(next[0].villainWins).toBe(4);
-  });
-
-  it('increments live count when canonical start replaces a completed legacy row', () => {
-    const state = [{ ...baseMatchup, tournamentId: 'run', runId: 'run', live_count: 0 }];
-    const next = matchupsReducer(state, {
-      type: 'game_start',
-      event: {
-        game: {
-          id: 10,
-          run_id: 'run_full',
-          tournament_id: 'run',
-          black_id: 1,
-          white_id: 2,
-          black_name: 'agent',
-          black_ver: '0.3',
-          white_name: 'shrek',
-          white_ver: '6.2',
-          timestamp: '2026-01-01T00:00:01Z',
-          winner_color: 0
-        }
-      }
-    });
-
-    expect(next).toHaveLength(1);
-    expect(next[0].runId).toBe('run_full');
-    expect(next[0].live_count).toBe(1);
-  });
-
-  it('removes deleted runs by canonical run id', () => {
-    const state = [baseMatchup, { ...baseMatchup, tournamentId: 'other', runId: 'other' }];
-    const next = matchupsReducer(state, { type: 'run_delete', event: { run_id: 'run_full' } });
-
-    expect(next).toHaveLength(1);
-    expect(next[0].runId).toBe('other');
   });
 });

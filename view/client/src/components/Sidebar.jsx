@@ -108,7 +108,7 @@ export default function Sidebar({
             <MatchGroup
               key={key}
               group={g}
-              run={runs.find((r) => r.id === g.tournamentId)}
+              run={runs.find((r) => r.id === g.runId)}
               selectedGameId={selectedId}
               onSelectGame={(id) => {
                 setIsManualSelection(true);

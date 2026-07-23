@@ -28,7 +28,7 @@ test.describe('Arena Viewer E2E', () => {
       await route.fulfill({
         json: [
           {
-            tournamentId: 'run1',
+            runId: 'run1',
             hero: { id: 1, name: 'BotA', version: '1.0' },
             villain: { id: 2, name: 'BotB', version: '2.0' },
             heroWins: 10,

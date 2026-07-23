@@ -140,7 +140,6 @@ export const pairsReducer = (state, action) => {
         ? {
             ...sourceGame,
             group_id: e.group_id ?? sourceGame.group_id,
-            tournament_id: e.tournament_id ?? sourceGame.tournament_id,
             run_id: e.run_id ?? sourceGame.run_id,
             moves: e.moves ?? sourceGame.moves,
             move_count: e.move_count ?? sourceGame.move_count,
@@ -232,8 +231,7 @@ export default function MatchGroup({
         limit: 50,
         offset
       });
-      if (group.runId) params.set('run_id', group.runId);
-      else params.set('tournament_id', group.tournamentId);
+      params.set('run_id', group.runId);
       return fetch(`${API_BASE}/games?${params}`, { signal: abortRef.current.signal })
         .then((r) => r.json())
         .then((data) => {
@@ -249,7 +247,7 @@ export default function MatchGroup({
         .catch((e) => {
           if (e.name !== 'AbortError') setLoaded(false);
         });
-  }, [group.hero.id, group.villain.id, group.runId, group.tournamentId, onLoaded]
+  }, [group.hero.id, group.villain.id, group.runId, onLoaded]
 
   );
 
@@ -295,7 +293,7 @@ export default function MatchGroup({
     if (!open || !loaded) return;
     return subscribe((e) => {
       const tid = getEventRunId(e);
-      if (String(tid) !== String(group.runId || group.tournamentId)) return;
+      if (String(tid) !== String(group.runId)) return;
       const isMatch = (bId, wId) => samePlayerPair(group.hero.id, group.villain.id, bId, wId);
       if (e.type === 'game_start' && e.game && isMatch(e.game.black_id, e.game.white_id)) {
         dispatch({ type: 'game_start', game: e.game, sort, heroId: group.hero.id });
@@ -304,7 +302,7 @@ export default function MatchGroup({
         dispatch({ type: 'game_update', event: e, sort, heroId: group.hero.id });
       }
     });
-  }, [open, loaded, group.hero.id, group.villain.id, group.runId, group.tournamentId, subscribe, sort]);
+  }, [open, loaded, group.hero.id, group.villain.id, group.runId, subscribe, sort]);
 
   const getStatusClass = (g) => {
     if (g.winner_color === 3) return 'res-dot draw';

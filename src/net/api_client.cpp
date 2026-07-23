@@ -2,17 +2,13 @@
 #include "json.h"
 #include "../core/constants.h"
 #include "../core/logger.h"
-#include <random>
-#include <sstream>
 
 namespace Arena::Net {
 
 ApiManager::ApiManager(std::string url, std::string key, int debounce) :
     url_(std::move(url)), key_(std::move(key)), debounce_(debounce),
     buffer_(BUFFER_SIZE)
-{
-    sess_ = generate_session_id();
-}
+{}
 
 void ApiManager::start() {
     worker_ = std::thread(&ApiManager::loop, this);
@@ -71,14 +67,6 @@ void ApiManager::reset() {
         );
     }
     curl_slist_free_all(h);
-}
-
-std::string ApiManager::generate_session_id() {
-    thread_local std::mt19937 g(std::random_device{}());
-    std::uniform_int_distribution<> d(0, 15);
-    std::stringstream ss;
-    for (int i = 0; i < 8; ++i) ss << std::hex << d(g);
-    return ss.str();
 }
 
 void ApiManager::enqueue_shutdown() {
@@ -276,8 +264,8 @@ std::string ApiManager::build_event_json(const Event& e) {
     } else {
         js.add_str("type", e.type);
         js.add_str("external_id", e.ext_id);
+        if (!e.run_id.empty()) js.add_str("run_id", e.run_id);
         if (e.type == "start") {
-            js.add_str("run_id", e.run_id);
             js.add_str("p1n", e.p1_name);
             js.add_str("p1v", e.p1v);
             js.add_str("p2n", e.p2_name);

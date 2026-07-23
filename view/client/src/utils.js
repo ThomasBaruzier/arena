@@ -25,11 +25,11 @@ export const compareHeroOrder = (p1, p2) => {
   if (p1.name === p2.name) {
     const versionDiff = compareVersionsOnly(p1.version, p2.version);
     if (versionDiff !== 0) return versionDiff;
-  } else {
-    const m1 = numericMtime(p1.mtime ?? p1.p1_mtime);
-    const m2 = numericMtime(p2.mtime ?? p2.p2_mtime);
-    if (m1 !== null && m2 !== null && m1 !== m2) return m1 - m2;
   }
+
+  const m1 = numericMtime(p1.mtime ?? p1.p1_mtime);
+  const m2 = numericMtime(p2.mtime ?? p2.p2_mtime);
+  if (m1 !== null && m2 !== null && m1 !== m2) return m1 - m2;
 
   const nameDiff = p2.name.localeCompare(p1.name);
   if (nameDiff !== 0) return nameDiff;
@@ -79,10 +79,9 @@ export const getWinningLine = (moves, winnerColor) => {
   return [];
 };
 
-export const getRunId = (value) => value?.runId || value?.run_id || value?.id || value?.tournamentId || value?.tournament_id || 'legacy';
+export const getRunId = (value) => value?.runId || value?.run_id || null;
 
-export const getEventRunId = (event) =>
-  event?.game?.run_id || event?.run_id || event?.run?.id || event?.game?.tournament_id || event?.tournament_id || 'legacy';
+export const getEventRunId = (event) => event?.game?.run_id || event?.run_id || event?.run?.id || null;
 
 export const playerPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 

@@ -11,12 +11,6 @@ import MatchBar from './components/MatchBar';
 
 const API_BASE = '/api';
 
-const keyPlayerPair = (key) => key?.match(/-(\d+)-(\d+)$/)?.[0] ?? null;
-const keyRunId = (key) => {
-  const pair = keyPlayerPair(key);
-  return key && pair ? key.slice(0, -pair.length) : null;
-};
-
 export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [game, setGame] = useState(null);
@@ -105,7 +99,6 @@ export default function App() {
           setGame((g) => ({
             ...g,
             group_id: e.group_id ?? g?.group_id,
-            tournament_id: e.tournament_id ?? g?.tournament_id,
             run_id: e.run_id ?? g?.run_id,
             moves: e.moves,
             duration: e.duration ?? g?.duration
@@ -115,7 +108,6 @@ export default function App() {
           setGame((g) => ({
             ...g,
             group_id: e.group_id ?? g?.group_id,
-            tournament_id: e.tournament_id ?? g?.tournament_id,
             run_id: e.run_id ?? g?.run_id,
             winner_color: e.winner_color,
             moves: e.moves ?? g?.moves ?? '',
@@ -133,19 +125,9 @@ export default function App() {
   }, [game, isPlaying, parsedMoves.length, moveIndex, setMoveIndex]);
 
   useEffect(() => {
-    const matchupKeys = matchups.map(matchupKey);
-    const keys = new Set(matchupKeys);
-    const remapKey = (key) => {
-      if (!key || keys.has(key)) return key;
-      const pair = keyPlayerPair(key);
-      const runId = keyRunId(key);
-      const candidates = matchupKeys.filter((k) => keyPlayerPair(k) === pair);
-      const canonical = candidates.find((k) => runId && keyRunId(k)?.startsWith(`${runId}_`));
-      if (canonical) return canonical;
-      return candidates.length === 1 ? candidates[0] : null;
-    };
-    setExpanded((key) => remapKey(key));
-    setPending((key) => remapKey(key));
+    const keys = new Set(matchups.map(matchupKey));
+    setExpanded((key) => (key && keys.has(key) ? key : null));
+    setPending((key) => (key && keys.has(key) ? key : null));
   }, [matchups]);
 
   const matchupsSentinelRef = useRef(null);
