@@ -38,8 +38,14 @@ namespace Arena::Game {
         enum class State { UNINITIALIZED, INITIALIZED };
 
         Core::PlayerColor current_player() const;
+        int slot_for_color(Core::PlayerColor color) const;
+        int slot_for_player(const Player* player) const;
+        void record_crash(Core::PlayerColor loser);
+        void record_crash(Player* player);
+        double loss_for_player(const Player* player) const;
         void initialize_game(std::vector<Core::Point>& out_history);
         void send_run_start_event_if_needed(std::shared_ptr<App::RunContext> ctx);
+        void update_run_metadata_event(std::shared_ptr<App::RunContext> ctx);
         Net::ApiManager::Event create_event(const std::string& type);
         void send_start_event();
         void init_player(Player& p, Core::BotConfig& cfg);

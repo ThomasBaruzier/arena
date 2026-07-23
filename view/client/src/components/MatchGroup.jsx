@@ -187,16 +187,19 @@ export const pairsReducer = (state, action) => {
   return newState;
 };
 
-const RunStatsRow = ({ run, side, hasCrashes }) => (
-  <div className={`stats-row ${side} ${hasCrashes ? 'has-crash' : ''}`}>
-    <span className="player-label">{side.toUpperCase()}</span>
-    <span>{formatFloat(run[`${side}_elo`])}</span>
-    <span>{formatFloat(run[`${side}_erf`])}</span>
-    <span>{formatFloat(run[`${side}_cma`])}%</span>
-    <span>{formatFloat(run[`${side}_blunder`])}%</span>
-    {hasCrashes && <span className="crash">{run[`${side}_crashes`]}</span>}
-  </div>
-);
+const RunStatsRow = ({ run, slot, hasCrashes }) => {
+  const side = slot === 1 ? 'p1' : 'p2';
+  return (
+    <div className={`stats-row ${side} ${hasCrashes ? 'has-crash' : ''}`}>
+      <span className="player-label">S{slot}</span>
+      <span>{formatFloat(run[`${side}_elo`])}</span>
+      <span>{formatFloat(run[`${side}_erf`])}</span>
+      <span>{formatFloat(run[`${side}_cma`])}%</span>
+      <span>{formatFloat(run[`${side}_blunder`])}%</span>
+      {hasCrashes && <span className="crash">{run[`${side}_crashes`]}</span>}
+    </div>
+  );
+};
 
 export default function MatchGroup({
   group,
@@ -304,6 +307,7 @@ export default function MatchGroup({
 
   const getStatusClass = (g) => {
     if (g.winner_color === 3) return 'res-dot draw';
+    if (g.winner_color === 4) return 'res-dot void';
     return isHeroWin(g, group.hero.slot) ? 'res-dot res-win' : 'res-dot res-loss';
   };
 
@@ -336,6 +340,7 @@ export default function MatchGroup({
                 >
                   {group.hero.name}
                 </span>
+                <span className="slot-tag">S{group.hero.slot}</span>
                 <span className="ver-tag">{group.hero.version}</span>
               </div>
               <div className="meta-info">
@@ -355,6 +360,7 @@ export default function MatchGroup({
                 >
                   {group.villain.name}
                 </span>
+                <span className="slot-tag">S{group.villain.slot}</span>
                 <span className="ver-tag">{group.villain.version}</span>
               </div>
               {run && (
@@ -380,8 +386,8 @@ export default function MatchGroup({
                   <span>Bln</span>
                   {hasCrashes && <span>💥</span>}
                 </div>
-                <RunStatsRow run={run} side="p1" hasCrashes={hasCrashes} />
-                <RunStatsRow run={run} side="p2" hasCrashes={hasCrashes} />
+                <RunStatsRow run={run} slot={group.hero.slot} hasCrashes={hasCrashes} />
+                <RunStatsRow run={run} slot={group.villain.slot} hasCrashes={hasCrashes} />
               </div>
             );
           })()}

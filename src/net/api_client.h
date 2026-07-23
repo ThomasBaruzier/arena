@@ -49,6 +49,7 @@ namespace Arena::Net {
             double p1_cma = 0, p2_cma = 0;
             double p1_blunder = 0, p2_blunder = 0;
             bool is_done = false;
+            bool timed_out = false;
         };
 
         ApiManager(std::string url, std::string key, int debounce);

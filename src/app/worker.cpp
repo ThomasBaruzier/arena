@@ -118,7 +118,8 @@ static void finalize_run(
         if (api) {
             Net::ApiManager::Event e;
             e.type = "run_update"; e.run_id = ctx->id; e.is_done = true;
-            e.games_played = ctx->total_games_expected;
+            e.timed_out = Sys::g_stop_flag || ctx->games_completed + ctx->games_skipped < ctx->total_games_expected;
+            e.games_played = ctx->games_completed + ctx->games_skipped;
             {
                 std::lock_guard<std::mutex> l(ctx->match_state.mtx);
                 e.wins = ctx->match_state.wins;
@@ -208,9 +209,7 @@ static TaskResult fetch_next_task(WorkerState& ws, int thread_limit) {
                 auto& res = ctx->match_state.results[pair];
                 if (leg == 0) res.first = p1_score; else res.second = p1_score;
 
-                if (res.first > Core::Constants::PAIR_RESULT_THRESHOLD &&
-                    res.second > Core::Constants::PAIR_RESULT_THRESHOLD)
-                {
+                if (res.first >= 0.0 && res.second >= 0.0) {
                     ctx->match_state.pairs_done++;
                     update_pair_outcome(ctx->match_state, res.first, res.second);
 
@@ -267,6 +266,12 @@ static TaskResult fetch_next_task(WorkerState& ws, int thread_limit) {
     }
 
     return {std::nullopt, nullptr, false, true};
+}
+
+void finalize_all_runs(WorkerState& ws) {
+    for (auto& ctx : ws.contexts) {
+        if (ctx) finalize_run(ctx, ws.bc, ws.ndjson_out, ws.ndjson_mtx, ws.api);
+    }
 }
 
 void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
@@ -382,7 +387,16 @@ void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws) {
             }
         } else if (task.game) {
             std::vector<Core::Point> hist;
-            auto status = task.game->step(hist);
+            Game::Referee::Status status;
+            try {
+                status = task.game->step(hist);
+            } catch (const Core::MatchTerminated&) {
+                std::lock_guard<std::mutex> l(ws.task_mtx);
+                ws.active_games--;
+                ws.game_queue.clear();
+                ws.task_cv.notify_all();
+                throw;
+            }
             std::lock_guard<std::mutex> l(ws.task_mtx);
 
             if (cfg.eval_enabled() && !hist.empty() &&

@@ -158,6 +158,15 @@ int main(int argc, char* argv[]) {
         }
         for (auto& t : workers) t.join();
 
+        if (Sys::g_stop_flag) {
+            App::WorkerState ws{
+                eval_queue, game_queue, global_game_queue,
+                task_mtx, task_cv, active_games, api,
+                contexts, bc, ndjson_out, ndjson_mtx
+            };
+            App::finalize_all_runs(ws);
+        }
+
         Core::Logger::log(
             Core::Logger::Level::INFO,
             "===== ALL RUNS COMPLETE ====="
@@ -169,7 +178,7 @@ int main(int argc, char* argv[]) {
                 " (", ctx->config_label, "):"
             );
             ctx->stats.print();
-            if (ctx->stats.crashes.load() > 0) had_bot_failure = true;
+            if (ctx->stats.crashes.load() > 0 || ctx->failed) had_bot_failure = true;
         }
 
         if (ndjson_out) {

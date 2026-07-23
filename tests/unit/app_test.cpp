@@ -101,8 +101,8 @@ TEST_F(AppTest, PendingGamesOpeningBounds) {
     ops.push_back({{15, 15}});
 
     auto ctx = std::make_shared<App::RunContext>();
-    EXPECT_THROW(
-        App::CLI::create_pending_games(cfg, ops, std::nullopt, ctx, "id"),
-        std::runtime_error
-    );
+    auto games = App::CLI::create_pending_games(cfg, ops, std::nullopt, ctx, "id");
+    EXPECT_EQ(games.size(), 2);
+    EXPECT_EQ(games.front().opening.front().x, 15);
+    EXPECT_EQ(games.front().opening.front().y, 15);
 }

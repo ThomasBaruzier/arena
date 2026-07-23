@@ -42,6 +42,7 @@ namespace Arena::App {
         int total_games_expected = 0;
 
         std::atomic<bool> stop_flag{false};
+        std::atomic<bool> failed{false};
         std::once_flag finalized_flag;
 
         std::chrono::steady_clock::time_point last_api_update;
@@ -50,6 +51,7 @@ namespace Arena::App {
         std::string p1_name, p1_version, p2_name, p2_version;
         std::mutex name_mtx;
         bool names_set = false;
+        bool metadata_refreshed = false;
 
         bool should_send_update() {
             std::lock_guard<std::mutex> l(api_mtx);

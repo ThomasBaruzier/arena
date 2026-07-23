@@ -34,13 +34,34 @@ export default function App() {
   const parsedMoves = useMemo(() => (movesStr ? parseMoves(movesStr) : []), [movesStr]);
   const playback = useGamePlayback(parsedMoves.length);
   const { setMoveIndex, setIsPlaying, moveIndex, isPlaying } = playback;
+  const gameRef = useRef(null);
+  const isPlayingRef = useRef(false);
+  loadRef.current.selectedId = selectedId;
   const runsById = useMemo(() => new Map(runs.map((r) => [String(r.id), r])), [runs]);
+
+  useEffect(() => {
+    gameRef.current = game;
+    isPlayingRef.current = isPlaying;
+  }, [game, isPlaying]);
 
   const applyLoadedGame = useCallback(
     (data, { stopPlayback = false } = {}) => {
+      const incomingMoves = parseMoves(data.moves).length;
+      const current = gameRef.current;
+      const currentMoves = parseMoves(current?.moves).length;
+      if (current && String(current.id) === String(data.id)) {
+        const currentTerminal = current.winner_color && current.winner_color !== 0;
+        const incomingLive = !data.winner_color || data.winner_color === 0;
+        if (currentTerminal && incomingLive) return;
+        if (incomingMoves < currentMoves) return;
+      }
       setGame(data);
-      setMoveIndex(parseMoves(data.moves).length);
-      if (stopPlayback) setIsPlaying(false);
+      gameRef.current = data;
+      setMoveIndex(incomingMoves);
+      if (stopPlayback) {
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+      }
     },
     [setMoveIndex, setIsPlaying]
   );
@@ -73,9 +94,10 @@ export default function App() {
     loadRef.current.abort = controller;
     const reqId = ++loadRef.current.id;
 
+    loadRef.current.selectedId = selectedId;
     fetchGame(selectedId, { signal: controller.signal })
       .then((data) => {
-        if (reqId === loadRef.current.id) applyLoadedGame(data, { stopPlayback: true });
+        if (reqId === loadRef.current.id && String(selectedId) === String(loadRef.current.selectedId)) applyLoadedGame(data, { stopPlayback: true });
       })
       .catch(() => {});
 
@@ -93,27 +115,46 @@ export default function App() {
       if (eventId !== selectedId) return;
       switch (e.type) {
         case 'game_start':
-          setGame((g) => ({ ...g, ...e.game }));
+          setGame((g) => {
+            const next = { ...g, ...e.game };
+            gameRef.current = next;
+            return next;
+          });
           break;
         case 'game_move':
-          setGame((g) => ({
-            ...g,
-            group_id: e.group_id ?? g?.group_id,
-            run_id: e.run_id ?? g?.run_id,
-            moves: e.moves,
-            duration: e.duration ?? g?.duration
-          }));
+          setGame((g) => {
+            if (g?.winner_color && g.winner_color !== 0) return g;
+            const currentMoves = parseMoves(g?.moves).length;
+            const incomingMoves = parseMoves(e.moves).length;
+            if (incomingMoves < currentMoves) return g;
+            const next = {
+              ...g,
+              group_id: e.group_id ?? g?.group_id,
+              run_id: e.run_id ?? g?.run_id,
+              moves: e.moves,
+              duration: e.duration ?? g?.duration
+            };
+            gameRef.current = next;
+            return next;
+          });
           break;
-        case 'game_result':
-          setGame((g) => ({
-            ...g,
-            group_id: e.group_id ?? g?.group_id,
-            run_id: e.run_id ?? g?.run_id,
-            winner_color: e.winner_color,
-            moves: e.moves ?? g?.moves ?? '',
-            duration: e.duration ?? g?.duration
-          }));
+        case 'game_result': {
+          const resultMoves = e.moves ?? gameRef.current?.moves ?? '';
+          setGame((g) => {
+            const next = {
+              ...g,
+              group_id: e.group_id ?? g?.group_id,
+              run_id: e.run_id ?? g?.run_id,
+              winner_color: e.winner_color,
+              moves: e.moves ?? g?.moves ?? '',
+              duration: e.duration ?? g?.duration
+            };
+            gameRef.current = next;
+            return next;
+          });
+          if (!isPlayingRef.current) setMoveIndex(parseMoves(resultMoves).length);
           break;
+        }
       }
     });
   }, [selectedId, subscribe]);
@@ -145,10 +186,14 @@ export default function App() {
 
   useEffect(() => {
     if (prevConnectedRef.current === false && isConnected === true) {
-      if (selectedId)
-        fetchGame(selectedId)
-          .then((data) => applyLoadedGame(data))
+      if (selectedId) {
+        const refreshId = selectedId;
+        fetchGame(refreshId)
+          .then((data) => {
+            if (String(refreshId) === String(loadRef.current.selectedId)) applyLoadedGame(data);
+          })
           .catch(() => {});
+      }
       loadMore(true);
     }
     prevConnectedRef.current = isConnected;
@@ -236,6 +281,7 @@ export default function App() {
                 moveIndex={playback.moveIndex}
                 winnerColor={game.winner_color}
                 isPlaying={playback.isPlaying}
+                boardSize={game.board_size}
               />
               <ControlDeck {...playback} totalMoves={parsedMoves.length} />
             </>

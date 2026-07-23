@@ -38,7 +38,7 @@ TEST_F(PlayerTest, MessageCheck) {
 
 TEST_F(PlayerTest, NoVersionProvided) {
     player->extract_version("name=\"Bot\"");
-    EXPECT_EQ(player->version(), "");
+    EXPECT_EQ(player->version(), "unknown");
 }
 
 TEST_F(PlayerTest, NoNameProvided) {
@@ -50,7 +50,7 @@ TEST_F(PlayerTest, EmptyAboutString) {
     player->extract_name("");
     player->extract_version("");
     EXPECT_EQ(player->name(), "dummy");
-    EXPECT_EQ(player->version(), "");
+    EXPECT_EQ(player->version(), "unknown");
 }
 
 TEST_F(PlayerTest, MessageWithExtraSpaces) {

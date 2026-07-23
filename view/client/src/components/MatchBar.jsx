@@ -16,6 +16,7 @@ const MatchBar = memo(function MatchBar({ game }) {
   const renderScore = () => {
     if (game.winner_color === 0) return <span className="live-tag">LIVE</span>;
     if (game.winner_color === 3) return <span className="final-score">½ - ½</span>;
+    if (game.winner_color === 4) return <span className="final-score void">VOID</span>;
     return (
       <span className="final-score">
         {p1Gold ? 1 : 0} - {p2Gold ? 1 : 0}

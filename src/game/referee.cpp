@@ -14,6 +14,17 @@
 namespace Arena::Game {
 
 namespace {
+    struct InitializationError : std::runtime_error {
+        InitializationError(Arena::Game::Player* failed_player, const std::string& message)
+            : std::runtime_error(message), player(failed_player) {}
+
+        Arena::Game::Player* player;
+    };
+
+    struct OpeningError : std::runtime_error {
+        using std::runtime_error::runtime_error;
+    };
+
     std::optional<std::string> resolve_executable_path(const std::string& cmd) {
         wordexp_t words;
         if (wordexp(cmd.c_str(), &words, WRDE_NOCMD) != 0) return std::nullopt;
@@ -90,23 +101,25 @@ Referee::Status Referee::step(std::vector<Core::Point>& out_history) {
             "Pair ", p_.pair, " Leg ", p_.leg,
             " Player Error: ", e.what()
         );
+        Core::PlayerColor loser = current_player();
         if (p_.config().exit_on_crash) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to player error: ", e.what()
             );
+            record_crash(loser);
             Sys::g_stop_flag = 1;
+            finish(loser == Core::PlayerColor::BLACK ? 0.0 : 1.0);
             throw Core::MatchTerminated();
         }
-        Core::PlayerColor loser = current_player();
-        stats_.add_crash(loser == Core::PlayerColor::BLACK ? 1 : 2);
+        record_crash(loser);
         finish(loser == Core::PlayerColor::BLACK ? 0.0 : 1.0);
         return Status::FINISHED;
     } catch (const Core::MatchTerminated&) {
         if (state_ == State::INITIALIZED) finish(-1.0);
         else { pl1_.stop(); pl2_.stop(); }
         throw;
-    } catch (const std::exception& e) {
+    } catch (const InitializationError& e) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
             "Pair ", p_.pair, " Leg ", p_.leg,
@@ -117,11 +130,51 @@ Referee::Status Referee::step(std::vector<Core::Point>& out_history) {
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to system error: ", e.what()
             );
+            record_crash(e.player);
             Sys::g_stop_flag = 1;
+            finish(loss_for_player(e.player));
             throw Core::MatchTerminated();
         }
+        record_crash(e.player);
+            finish(loss_for_player(e.player));
+
+        return Status::FINISHED;
+    } catch (const OpeningError& e) {
+        Core::Logger::log(
+            Core::Logger::Level::ERROR,
+            "Pair ", p_.pair, " Leg ", p_.leg,
+            " Opening Error: ", e.what()
+        );
+        if (p_.context) p_.context->failed = true;
+        if (p_.config().exit_on_crash) {
+            Core::Logger::log(
+                Core::Logger::Level::ERROR,
+                "STRICT MODE: Exiting due to opening error: ", e.what()
+            );
+            Sys::g_stop_flag = 1;
+            finish(-1.0);
+            throw Core::MatchTerminated();
+        }
+        finish(-1.0);
+        return Status::FINISHED;
+    } catch (const std::exception& e) {
+        Core::Logger::log(
+            Core::Logger::Level::ERROR,
+            "Pair ", p_.pair, " Leg ", p_.leg,
+            " System Error: ", e.what()
+        );
         Core::PlayerColor crash_p = current_player();
-        stats_.add_crash(crash_p == Core::PlayerColor::BLACK ? 1 : 2);
+        if (p_.config().exit_on_crash) {
+            Core::Logger::log(
+                Core::Logger::Level::ERROR,
+                "STRICT MODE: Exiting due to system error: ", e.what()
+            );
+            record_crash(crash_p);
+            Sys::g_stop_flag = 1;
+            finish(crash_p == Core::PlayerColor::BLACK ? 0.0 : 1.0);
+            throw Core::MatchTerminated();
+        }
+        record_crash(crash_p);
         finish(crash_p == Core::PlayerColor::BLACK ? 0.0 : 1.0);
         return Status::FINISHED;
     }
@@ -141,6 +194,28 @@ Core::PlayerColor Referee::current_player() const {
         : Core::PlayerColor::WHITE;
 }
 
+int Referee::slot_for_color(Core::PlayerColor color) const {
+    if (color == Core::PlayerColor::BLACK) return (p_.leg == 0) ? 1 : 2;
+    return (p_.leg == 0) ? 2 : 1;
+}
+
+int Referee::slot_for_player(const Player* player) const {
+    if (player == &pl1_) return (p_.leg == 0) ? 1 : 2;
+    return (p_.leg == 0) ? 2 : 1;
+}
+
+void Referee::record_crash(Core::PlayerColor loser) {
+    stats_.add_crash(slot_for_color(loser));
+}
+
+void Referee::record_crash(Player* player) {
+    stats_.add_crash(slot_for_player(player));
+}
+
+double Referee::loss_for_player(const Player* player) const {
+    return player == &pl1_ ? 0.0 : 1.0;
+}
+
 void Referee::initialize_game(std::vector<Core::Point>& out_history) {
     state_ = State::INITIALIZED;
 
@@ -155,21 +230,30 @@ void Referee::initialize_game(std::vector<Core::Point>& out_history) {
     if (mem2 > 0 && Core::is_rapfi_bot(p_.p2_cfg.cmd))
         mem2 += Core::Constants::PROCESS_MEMORY_OVERHEAD;
 
-    if (!pl1_.start(mem1, env_vars))
-        throw std::runtime_error("P1 start failed");
-    if (!pl2_.start(mem2, env_vars))
-        throw std::runtime_error("P2 start failed");
+    if (auto ctx = p_.context) send_run_start_event_if_needed(ctx);
+    send_start_event();
 
-    pl1_.meta();
-    pl2_.meta();
+    if (!pl1_.start(mem1, env_vars))
+        throw InitializationError(&pl1_, "P1 start failed");
+    if (!pl2_.start(mem2, env_vars))
+        throw InitializationError(&pl2_, "P2 start failed");
+
+    try { pl1_.meta(); }
+    catch (const Core::MatchTerminated&) { throw; }
+    catch (const std::exception& e) { throw InitializationError(&pl1_, e.what()); }
+    try { pl2_.meta(); }
+    catch (const Core::MatchTerminated&) { throw; }
+    catch (const std::exception& e) { throw InitializationError(&pl2_, e.what()); }
+    if (auto ctx = p_.context) update_run_metadata_event(ctx);
     pl1_.set_lenient(p_.p1_cfg.lenient);
     pl2_.set_lenient(p_.p2_cfg.lenient);
 
-    if (auto ctx = p_.context) send_run_start_event_if_needed(ctx);
-
-    send_start_event();
-    init_player(pl1_, p_.p1_cfg);
-    init_player(pl2_, p_.p2_cfg);
+    try { init_player(pl1_, p_.p1_cfg); }
+    catch (const Core::MatchTerminated&) { throw; }
+    catch (const std::exception& e) { throw InitializationError(&pl1_, e.what()); }
+    try { init_player(pl2_, p_.p2_cfg); }
+    catch (const Core::MatchTerminated&) { throw; }
+    catch (const std::exception& e) { throw InitializationError(&pl2_, e.what()); }
     apply_opening_moves();
     out_history = hist_;
 }
@@ -245,13 +329,15 @@ bool Referee::play_turn(std::vector<Core::Point>& out_history) {
         p1_cpu_ms_ += cpu_delta;
         p1_wall_ms_ += el;
         if (p_.context) {
-            stats_.p1_total_time_ms += el;
+            if (slot_for_color(c) == 1) stats_.p1_total_time_ms += el;
+            else stats_.p2_total_time_ms += el;
         }
     } else {
         p2_cpu_ms_ += cpu_delta;
         p2_wall_ms_ += el;
         if (p_.context) {
-            stats_.p2_total_time_ms += el;
+            if (slot_for_color(c) == 1) stats_.p1_total_time_ms += el;
+            else stats_.p2_total_time_ms += el;
         }
     }
 
@@ -272,7 +358,7 @@ bool Referee::play_turn(std::vector<Core::Point>& out_history) {
 
     if (Rules::check_win(board_, p_.config().board_size,
         move.x, move.y, static_cast<int>(c))) {
-        finish((cp == &pl1_) ? 1.0 : 0.0);
+        finish(c == Core::PlayerColor::BLACK ? 1.0 : 0.0);
         return true;
     }
     return false;
@@ -299,8 +385,8 @@ void Referee::finish(double res) {
     auto& bot1 = p1_is_black ? pl1_ : pl2_;
     auto& bot2 = p1_is_black ? pl2_ : pl1_;
 
-    double s1 = p1_is_black ? res : 1.0 - res;
-    double s2 = 1.0 - s1;
+    double s1 = res < 0 ? res : p1_is_black ? res : 1.0 - res;
+    double s2 = res < 0 ? res : 1.0 - s1;
     long t1 = p1_is_black ? p1_wall_ms_ : p2_wall_ms_;
     long t2 = p1_is_black ? p2_wall_ms_ : p1_wall_ms_;
     long mem1 = bot1.peak_mem();
@@ -407,6 +493,35 @@ void Referee::send_run_start_event_if_needed(std::shared_ptr<App::RunContext> ct
     }
 }
 
+void Referee::update_run_metadata_event(std::shared_ptr<App::RunContext> ctx) {
+    auto& run_p1 = (p_.leg == 0) ? pl1_ : pl2_;
+    auto& run_p2 = (p_.leg == 0) ? pl2_ : pl1_;
+
+    {
+        std::lock_guard<std::mutex> l(ctx->name_mtx);
+        if (ctx->p1_name == run_p1.name() && ctx->p1_version == run_p1.version() &&
+            ctx->p2_name == run_p2.name() && ctx->p2_version == run_p2.version()) return;
+        ctx->p1_name = run_p1.name(); ctx->p1_version = run_p1.version();
+        ctx->p2_name = run_p2.name(); ctx->p2_version = run_p2.version();
+    }
+
+    if (auto api = api_) {
+        Net::ApiManager::Event e;
+        e.type = "run_start"; e.run_id = ctx->id;
+        e.p1_name = run_p1.name(); e.p1v = run_p1.version();
+        e.p2_name = run_p2.name(); e.p2v = run_p2.version();
+        e.p1_cmd = run_p1.path(); e.p2_cmd = run_p2.path();
+        e.p1_mtime = executable_mtime_ms(e.p1_cmd);
+        e.p2_mtime = executable_mtime_ms(e.p2_cmd);
+        e.config_label = ctx->config_label; e.total_games = ctx->total_games_expected;
+        e.p1_nodes = ctx->run_spec.p1_nodes; e.p2_nodes = ctx->run_spec.p2_nodes;
+        e.eval_nodes = ctx->run_spec.eval_nodes; e.board_size = ctx->cfg.board_size;
+        e.min_pairs = ctx->run_spec.min_pairs; e.max_pairs = ctx->run_spec.max_pairs;
+        e.repeat_index = ctx->run_spec.repeat_index; e.seed = ctx->run_spec.seed;
+        api->enqueue(e);
+    }
+}
+
 void Referee::apply_opening_moves() {
     for (const auto& m : p_.opening) {
         validate_opening_move(m);
@@ -422,9 +537,9 @@ void Referee::apply_opening_moves() {
 void Referee::validate_opening_move(const Core::Point& m) {
     if (m.x < 0 || m.x >= p_.config().board_size ||
         m.y < 0 || m.y >= p_.config().board_size)
-        throw std::runtime_error("OOB Opening");
+        throw OpeningError("OOB Opening");
     if (board_[m.y * p_.config().board_size + m.x])
-        throw std::runtime_error("Occupied Opening");
+        throw OpeningError("Occupied Opening");
 }
 
 void Referee::send_start_event() {

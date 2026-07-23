@@ -27,6 +27,7 @@ namespace Arena::App {
     };
 
     void interleaved_worker_loop(const Core::Config& cfg, WorkerState& ws);
+    void finalize_all_runs(WorkerState& ws);
 
     std::string format_ndjson_line(
         const Core::BatchConfig& bc, const Core::RunSpec& rs, const MatchState& state,

@@ -45,6 +45,7 @@ namespace Arena::Core::Constants {
     constexpr int PROTOCOL_THREAD_NUM = 1;
 
     constexpr uint64_t DEFAULT_EVAL_NODES = 2000000;
+    constexpr uint64_t JSON_SAFE_INTEGER_MAX = 9007199254740991ULL;
     constexpr int DEFAULT_EVAL_CUTOFF_MS = 30000;
     constexpr double METRIC_CRITICAL_SHARPNESS = 0.05;
     constexpr double METRIC_CRITICAL_SUCCESS_REGRET = 0.02;

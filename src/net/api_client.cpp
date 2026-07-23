@@ -268,6 +268,7 @@ std::string ApiManager::build_event_json(const Event& e) {
         js.add("p2_cma", e.p2_cma);
         js.add("p2_blunder", e.p2_blunder);
         js.add("is_done", e.is_done ? "true" : "false");
+        js.add("timed_out", e.timed_out ? "true" : "false");
     } else {
         js.add_str("type", e.type);
         js.add_str("external_id", e.ext_id);

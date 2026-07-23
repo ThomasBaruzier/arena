@@ -10,7 +10,7 @@ namespace Arena::Game {
     Player::Player(
         std::string path, std::string id,
         std::unique_ptr<Sys::Process> proc
-    ) : proc_(std::move(proc)), id_(id), path_(path)
+    ) : proc_(std::move(proc)), id_(id), path_(path), version_("unknown")
     {
         if (!proc_)
             proc_ = std::make_unique<Sys::Process>(path);

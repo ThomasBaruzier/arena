@@ -16,6 +16,11 @@ const init = (db) => {
     insertRunSlot: db.prepare(`
       INSERT INTO run_slots (run_id, slot, name, version, cmd, mtime)
       VALUES (@run_id, @slot, @name, @version, @cmd, @mtime)
+      ON CONFLICT(run_id, slot) DO UPDATE SET
+        name = excluded.name,
+        version = excluded.version,
+        cmd = excluded.cmd,
+        mtime = excluded.mtime
     `),
     insertGame: db.prepare(`
       INSERT INTO games (external_id, group_id, run_id, black_slot, white_slot, opening_len)
@@ -28,10 +33,11 @@ const init = (db) => {
     getGameDetails: db.prepare(`
       SELECT
         g.id, g.external_id, g.group_id, g.timestamp, g.moves, g.winner_color,
-        g.run_id, g.black_slot, g.white_slot, g.opening_len, g.duration,
+        g.run_id, r.board_size, g.black_slot, g.white_slot, g.opening_len, g.duration,
         bs.name as black_name, bs.version as black_ver, bs.cmd as black_cmd, bs.mtime as black_mtime,
         ws.name as white_name, ws.version as white_ver, ws.cmd as white_cmd, ws.mtime as white_mtime
       FROM games g
+      JOIN runs r ON r.id = g.run_id
       JOIN run_slots bs ON bs.run_id = g.run_id AND bs.slot = g.black_slot
       JOIN run_slots ws ON ws.run_id = g.run_id AND ws.slot = g.white_slot
       WHERE g.id = ?
@@ -99,25 +105,27 @@ const getGamesDynamic = ({ runId, heroSlot, limit, offset, orderBy }) => {
   const sql = `
     SELECT * FROM (
       SELECT
-        group_id, COUNT(*) as pair_size, MAX(timestamp) as latest_ts, MAX(id) as max_id,
-        MAX(CASE WHEN moves IS NULL OR moves = '' THEN 0 ELSE LENGTH(moves) - LENGTH(REPLACE(moves, ';', '')) + 1 END) as max_moves,
-        MIN(CASE WHEN moves IS NULL OR moves = '' THEN 0 ELSE LENGTH(moves) - LENGTH(REPLACE(moves, ';', '')) + 1 END) as min_moves,
-        SUM(CASE WHEN winner_color = 0 THEN 1 ELSE 0 END) as live_count,
-        MAX(duration) as duration,
-        SUM(CASE WHEN winner_color != 0 AND winner_color != 3 AND winner_color != 4 AND (
-          (winner_color = 1 AND black_slot = @heroSlot) OR (winner_color = 2 AND white_slot = @heroSlot)
+        g.group_id, COUNT(*) as pair_size, MAX(g.timestamp) as latest_ts, MAX(g.id) as max_id,
+        MAX(CASE WHEN g.moves IS NULL OR g.moves = '' THEN 0 ELSE LENGTH(g.moves) - LENGTH(REPLACE(g.moves, ';', '')) + 1 END) as max_moves,
+        MIN(CASE WHEN g.moves IS NULL OR g.moves = '' THEN 0 ELSE LENGTH(g.moves) - LENGTH(REPLACE(g.moves, ';', '')) + 1 END) as min_moves,
+        SUM(CASE WHEN g.winner_color = 0 THEN 1 ELSE 0 END) as live_count,
+        MAX(g.duration) as duration,
+        SUM(CASE WHEN g.winner_color != 0 AND g.winner_color != 3 AND g.winner_color != 4 AND (
+          (g.winner_color = 1 AND g.black_slot = @heroSlot) OR (g.winner_color = 2 AND g.white_slot = @heroSlot)
         ) THEN 1 ELSE 0 END) as hero_wins,
         json_group_array(json_object(
-          'id', id, 'winner_color', winner_color,
-          'move_count', CASE WHEN moves IS NULL OR moves = '' THEN 0 ELSE LENGTH(moves) - LENGTH(REPLACE(moves, ';', '')) + 1 END,
-          'timestamp', timestamp, 'external_id', external_id,
-          'black_slot', black_slot, 'white_slot', white_slot,
-          'run_id', run_id,
-          'opening_len', opening_len,
-          'duration', duration
+          'id', g.id, 'winner_color', g.winner_color,
+          'move_count', CASE WHEN g.moves IS NULL OR g.moves = '' THEN 0 ELSE LENGTH(g.moves) - LENGTH(REPLACE(g.moves, ';', '')) + 1 END,
+          'timestamp', g.timestamp, 'external_id', g.external_id,
+          'black_slot', g.black_slot, 'white_slot', g.white_slot,
+          'run_id', g.run_id,
+          'board_size', r.board_size,
+          'opening_len', g.opening_len,
+          'duration', g.duration
         )) as games_json
-      FROM games
-      WHERE run_id = @runId
+      FROM games g
+      JOIN runs r ON r.id = g.run_id
+      WHERE g.run_id = @runId
       GROUP BY group_id
     )
     ORDER BY ${orderBy} LIMIT @limit OFFSET @offset

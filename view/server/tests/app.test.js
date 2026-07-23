@@ -58,9 +58,9 @@ describe('Gomoku API Integration', () => {
         { type: 'start', external_id: 'r1_1_0', run_id: 'r1', black_slot: 1, white_slot: 2 },
         { type: 'move', external_id: 'r1_1_0', run_id: 'r1', x: 10, y: 10, c: 1 },
         { type: 'move', external_id: 'r1_1_0', run_id: 'r1', x: 11, y: 11, c: 2 },
-        { type: 'result', external_id: 'r1_1_0', run_id: 'r1', winner: 1 },
+        { type: 'result', external_id: 'r1_1_0', run_id: 'r1', winner: 2, moves: '10,10,1;11,11,2' },
         { type: 'start', external_id: 'r1_1_1', run_id: 'r1', black_slot: 2, white_slot: 1 },
-        { type: 'result', external_id: 'r1_1_1', run_id: 'r1', winner: 1 },
+        { type: 'result', external_id: 'r1_1_1', run_id: 'r1', winner: 1, moves: '' },
         { type: 'run_update', run_id: 'r1', wins: 1, losses: 1, draws: 0, games_played: 2 }
       ])
       .expect(200);
@@ -69,6 +69,8 @@ describe('Gomoku API Integration', () => {
     expect(games.body).toHaveLength(1);
     expect(games.body[0].games).toHaveLength(2);
     expect(games.body[0].games.find((g) => g.external_id === 'r1_1_0').move_count).toBe(2);
+    expect(games.body[0].games.find((g) => g.external_id === 'r1_1_0').winner_color).toBe(2);
+    expect(games.body[0].games.find((g) => g.external_id === 'r1_1_1').winner_color).toBe(1);
 
     const matchups = await request(app).get('/api/matchups').expect(200);
     expect(matchups.body).toHaveLength(1);
@@ -89,8 +91,8 @@ describe('Gomoku API Integration', () => {
         { type: 'move', external_id: 'guard_1_0', run_id: 'wrong', x: 2, y: 2, c: 2 },
         { type: 'move', external_id: 'guard_1_0', run_id: 'guard', x: 3, y: 3, c: 1 },
         { type: 'result', external_id: 'guard_1_0', winner: 1 },
-        { type: 'result', external_id: 'guard_1_0', run_id: 'wrong', winner: 2 },
-        { type: 'result', external_id: 'guard_1_0', run_id: 'guard', winner: 1 }
+        { type: 'result', external_id: 'guard_1_0', run_id: 'wrong', winner: 2, moves: '3,3,1' },
+        { type: 'result', external_id: 'guard_1_0', run_id: 'guard', winner: 1, moves: '3,3,1' }
       ])
       .expect(200);
 
@@ -109,7 +111,7 @@ describe('Gomoku API Integration', () => {
         { type: 'start', external_id: 'dup_1_0', run_id: 'dup', black_slot: 1, white_slot: 2 },
         { type: 'move', external_id: 'dup_1_0', run_id: 'dup', x: 1, y: 1, c: 1 },
         { type: 'start', external_id: 'dup_1_0', run_id: 'dup', black_slot: 1, white_slot: 2 },
-        { type: 'result', external_id: 'dup_1_0', run_id: 'dup', winner: 1 }
+        { type: 'result', external_id: 'dup_1_0', run_id: 'dup', winner: 1, moves: '1,1,1' }
       ])
       .expect(200);
 
@@ -164,6 +166,57 @@ describe('Gomoku API Integration', () => {
     expect(matchups.body[0].hero.name).toBe('shrek');
     expect(matchups.body[0].heroWins).toBe(1);
     expect(matchups.body[0].villainWins).toBe(3);
+  });
+
+  it('normalizes missing slot versions and exposes game board size', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set(auth)
+      .send([
+        { type: 'run_start', run_id: 'unknown_version', slots: slots({ version: '' }, { version: undefined }), board_size: 15 },
+        { type: 'start', external_id: 'unknown_version_1_0', run_id: 'unknown_version', black_slot: 1, white_slot: 2 }
+      ])
+      .expect(200);
+
+    const runs = await request(app).get('/api/runs').expect(200);
+    expect(runs.body[0].slot1_version).toBe('unknown');
+    expect(runs.body[0].slot2_version).toBe('unknown');
+
+    const games = await request(app).get('/api/games?run_id=unknown_version').expect(200);
+    const game = await request(app).get(`/api/game/${games.body[0].games[0].id}`).expect(200);
+    expect(game.body.board_size).toBe(15);
+  });
+
+  it('ignores malformed move and result payloads', async () => {
+    await request(app)
+      .post('/api/batch')
+      .set(auth)
+      .send([
+        { type: 'run_start', run_id: 'validate', slots: slots(), board_size: 15 },
+        { type: 'start', external_id: 'validate_1_0', run_id: 'validate', black_slot: 1, white_slot: 2 },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 16, y: 1, c: 1 },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 1, y: 1, c: 7 },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: '', y: 1, c: 1 },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 2, y: 2, c: 2 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 0 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 9 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1, moves: '0,0,1;bad' },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1, moves: '0,,1' },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1, moves: '0,0,1;0,0,2' },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 1, y: 1, c: 1 },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 1, y: 1, c: 2 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1, moves: '2,2,1;3,3,2' },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 1, moves: '1,1,1' },
+        { type: 'move', external_id: 'validate_1_0', run_id: 'validate', x: 2, y: 2, c: 2 },
+        { type: 'result', external_id: 'validate_1_0', run_id: 'validate', winner: 4, moves: '1,1,1;2,2,2' }
+      ])
+      .expect(200);
+
+    const games = await request(app).get('/api/games?run_id=validate').expect(200);
+    const game = await request(app).get(`/api/game/${games.body[0].games[0].id}`).expect(200);
+    expect(game.body.moves).toBe('1,1,1');
+    expect(game.body.winner_color).toBe(1);
   });
 
   it('preserves metrics across sparse run updates after run_start', async () => {

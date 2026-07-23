@@ -135,13 +135,19 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
         return (e && std::getenv(e)) ? Core::Utils::parse_memory_bytes(std::getenv(e)) : d;
     };
 
+    auto require_json_safe = [](uint64_t value, const std::string& label) {
+        if (value > Core::Constants::JSON_SAFE_INTEGER_MAX)
+            throw std::runtime_error(label + " exceeds JSON safe integer range");
+        return value;
+    };
+
     auto get_node_list = [&](const std::string& s, const std::string& l) {
         std::vector<uint64_t> res;
         auto v = consume(s);
         if (!v) v = consume(l);
         if (v && !v->empty()) {
             for (const auto& i : Core::Utils::split_csv(*v))
-                res.push_back(Core::Utils::parse_node_count(i));
+                res.push_back(require_json_safe(Core::Utils::parse_node_count(i), "node count"));
         }
         return res;
     };
@@ -213,7 +219,9 @@ Core::BatchConfig CLI::parse_batch_args(int argc, char* argv[]) {
 
     bc.repeat = get_int("", "--repeat", nullptr, 1);
     if (auto v = consume("--seed"); v && !v->empty()) {
-        for (const auto& i : Core::Utils::split_csv(*v)) bc.seeds.push_back(std::stoull(i));
+        for (const auto& i : Core::Utils::split_csv(*v)) {
+            bc.seeds.push_back(require_json_safe(std::stoull(i), "seed"));
+        }
     }
 
     bc.debug = consume_flag("-d") || consume_flag("--debug");
@@ -417,12 +425,6 @@ std::deque<GameParams> CLI::create_pending_games(
         std::vector<Core::Point> op;
         if (cfg.use_openings && !ops.empty()) {
             op = ops[i % ops.size()];
-            for (const auto& p : op) {
-                if (p.x < 0 || p.x >= cfg.board_size ||
-                    p.y < 0 || p.y >= cfg.board_size) {
-                    throw std::runtime_error("Opening move out of bounds");
-                }
-            }
         }
         pending_games.push_back(
             {i + 1, 0, cfg.bot1, cfg.bot2, op, seed, context, run_id, nullptr}
