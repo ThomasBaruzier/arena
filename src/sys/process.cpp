@@ -10,11 +10,51 @@
 #include <chrono>
 #include <sstream>
 #include <iostream>
+#include <set>
+#include <cctype>
+#include <algorithm>
 #include "../core/constants.h"
 #include "../core/types.h"
 #include "signals.h"
 
 extern char** environ;
+
+namespace {
+
+std::string environment_name(const std::string& entry) {
+    size_t pos = entry.find('=');
+    return pos == std::string::npos ? entry : entry.substr(0, pos);
+}
+
+bool has_suffix(const std::string& value, const std::string& suffix) {
+    return value.size() >= suffix.size() &&
+        value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool is_sensitive_environment_name(const std::string& name) {
+    std::string upper = name;
+    std::transform(
+        upper.begin(),
+        upper.end(),
+        upper.begin(),
+        [](unsigned char c) { return static_cast<char>(std::toupper(c)); }
+    );
+
+    if (upper == "API_KEY" ||
+        upper == "GOMOKU_API_KEY" ||
+        upper == "GITHUB_TOKEN" ||
+        upper == "GH_TOKEN" ||
+        upper == "SSH_AUTH_SOCK" ||
+        upper == "SSH_AGENT_PID") {
+        return true;
+    }
+
+    return has_suffix(upper, "_KEY") ||
+        has_suffix(upper, "_TOKEN") ||
+        has_suffix(upper, "_SECRET");
+}
+
+}
 
 namespace Arena::Sys {
 
@@ -39,34 +79,58 @@ bool Process::start(
         c_args.push_back(const_cast<char*>(a.c_str()));
     c_args.push_back(nullptr);
 
-    std::vector<char*> envp;
+    std::set<std::string> overridden_names;
+    for (const auto& [key, value] : env_vars) {
+        static_cast<void>(value);
+        if (!is_sensitive_environment_name(key))
+            overridden_names.insert(key);
+    }
+
     std::vector<std::string> env_storage;
-    for (char** env = environ; *env; ++env)
-        env_storage.emplace_back(*env);
-    for (const auto& [key, val] : env_vars)
+    for (char** env = environ; *env; ++env) {
+        std::string entry(*env);
+        std::string name = environment_name(entry);
+        if (is_sensitive_environment_name(name)) continue;
+        if (overridden_names.find(name) != overridden_names.end()) continue;
+        env_storage.push_back(std::move(entry));
+    }
+
+    for (const auto& [key, val] : env_vars) {
+        if (is_sensitive_environment_name(key)) continue;
         env_storage.emplace_back(key + "=" + val);
+    }
+
+    std::vector<char*> envp;
+    envp.reserve(env_storage.size() + 1);
     for (auto& s : env_storage)
-        envp.push_back(&s[0]);
+        envp.push_back(s.data());
     envp.push_back(nullptr);
 
     int in[2], out[2];
     if (pipe2(in, O_CLOEXEC) != 0) return false;
     if (pipe2(out, O_CLOEXEC) != 0) {
-        close(in[0]); close(in[1]);
+        close(in[0]);
+        close(in[1]);
         return false;
     }
 
     pid_ = fork();
     if (pid_ < 0) {
-        close(in[0]); close(in[1]);
-        close(out[0]); close(out[1]);
+        close(in[0]);
+        close(in[1]);
+        close(out[0]);
+        close(out[1]);
         return false;
     }
 
     if (pid_ == 0) {
         start_child_process(
-            in, out, max_mem_bytes,
-            c_args.data(), envp.data(), resolved_path.c_str()
+            in,
+            out,
+            max_mem_bytes,
+            c_args.data(),
+            envp.data(),
+            resolved_path.c_str()
         );
     }
 
@@ -95,7 +159,8 @@ bool Process::write_line(const std::string& line) {
 }
 
 std::optional<std::string> Process::read_line(
-    int timeout_ms, long* elapsed_ms
+    int timeout_ms,
+    long* elapsed_ms
 ) {
     if (pid_ <= 0) return std::nullopt;
     auto start = std::chrono::steady_clock::now();
@@ -106,9 +171,10 @@ std::optional<std::string> Process::read_line(
         if (auto line = try_extract_line()) {
             if (elapsed_ms) {
                 auto now = std::chrono::steady_clock::now();
-                *elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - start
-                ).count();
+                *elapsed_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - start
+                    ).count();
             }
             return line;
         }
@@ -117,6 +183,7 @@ std::optional<std::string> Process::read_line(
         long used = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - start
         ).count();
+
         if (used >= timeout_ms) {
             int status;
             struct rusage usage;
@@ -132,28 +199,37 @@ std::optional<std::string> Process::read_line(
             return std::nullopt;
         }
 
-        int remaining = std::min((int)(timeout_ms - used),
-            Core::Constants::POLL_TIMEOUT_MS);
+        int remaining = std::min(
+            static_cast<int>(timeout_ms - used),
+            Core::Constants::POLL_TIMEOUT_MS
+        );
         read_available_data(std::max(0, remaining));
     }
 }
 
 long Process::get_current_rss_kb() const {
     if (pid_ <= 0) return 0;
+
     char path[Core::Constants::PATH_BUFFER_SIZE];
     snprintf(path, sizeof(path), "/proc/%d/statm", pid_);
 
     FILE* f = fopen(path, "r");
     if (!f) return 0;
+
     long pages = 0;
     if (fscanf(f, "%*d %ld", &pages) != 1) pages = 0;
     fclose(f);
+
     return pages * (sysconf(_SC_PAGESIZE) / 1024);
 }
 
 void Process::start_child_process(
-    int in[2], int out[2], long long mem_bytes,
-    char** argv, char** envp, const char* path
+    int in[2],
+    int out[2],
+    long long mem_bytes,
+    char** argv,
+    char** envp,
+    const char* path
 ) {
     setpgid(0, 0);
     prctl(PR_SET_PDEATHSIG, SIGTERM);
@@ -168,8 +244,11 @@ void Process::start_child_process(
     dup2(in[0], STDIN_FILENO);
     dup2(out[1], STDOUT_FILENO);
     dup2(out[1], STDERR_FILENO);
-    close(in[0]); close(in[1]);
-    close(out[0]); close(out[1]);
+
+    close(in[0]);
+    close(in[1]);
+    close(out[0]);
+    close(out[1]);
 
     execve(path, argv, envp);
     _exit(Core::Constants::EXIT_CODE_EXEC_FAILED);
@@ -178,11 +257,13 @@ void Process::start_child_process(
 std::vector<std::string> Process::parse_command_args() {
     std::vector<std::string> args;
     wordexp_t p;
+
     if (wordexp(cmd_.c_str(), &p, WRDE_NOCMD) == 0) {
         for (size_t i = 0; i < p.we_wordc; ++i)
             args.emplace_back(p.we_wordv[i]);
         wordfree(&p);
     }
+
     return args;
 }
 
@@ -192,15 +273,20 @@ void Process::send_end_signal() {
 }
 
 void Process::wait_or_kill() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(
-        Core::Constants::TERMINATION_GRACE_MS)
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(
+            Core::Constants::TERMINATION_GRACE_MS
+        )
     );
+
     int status;
     struct rusage usage;
+
     if (wait4(pid_, &status, WNOHANG, &usage) == 0) {
         kill(-pid_, SIGKILL);
         wait4(pid_, &status, 0, &usage);
     }
+
     peak_mem_kb_ = usage.ru_maxrss;
 }
 
@@ -211,22 +297,36 @@ void Process::close_fds() {
 
 bool Process::write_all(const std::string& data) {
     size_t sent = 0;
+
     while (sent < data.size()) {
         struct pollfd pfd = {in_fd_, POLLOUT, 0};
-        int ret = poll(&pfd, 1, Core::Constants::WRITE_TIMEOUT_MS);
+        int ret = poll(
+            &pfd,
+            1,
+            Core::Constants::WRITE_TIMEOUT_MS
+        );
+
         if (ret <= 0) {
             if (ret < 0 && errno == EINTR) continue;
             return false;
         }
 
         if (!(pfd.revents & POLLOUT)) return false;
-        ssize_t n = write(in_fd_, data.c_str() + sent, data.size() - sent);
+
+        ssize_t n = write(
+            in_fd_,
+            data.c_str() + sent,
+            data.size() - sent
+        );
+
         if (n < 0) {
             if (errno == EINTR) continue;
             return false;
         }
+
         sent += n;
     }
+
     return true;
 }
 
@@ -241,26 +341,36 @@ std::optional<std::string> Process::try_extract_line() {
         buf_.erase(0, buf_pos_);
         buf_pos_ = 0;
     }
-    if (!line.empty() && line.back() == '\r') line.pop_back();
+
+    if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+
     return line;
 }
 
 std::string Process::reap_exit_status() {
     if (pid_ <= 0) return "Process not running";
+
     int status;
     struct rusage usage;
     pid_t result = 0;
 
-    for (int i = 0; i < Core::Constants::EXIT_CHECK_RETRIES; ++i) {
+    for (int i = 0;
+         i < Core::Constants::EXIT_CHECK_RETRIES;
+         ++i) {
         result = wait4(pid_, &status, WNOHANG, &usage);
         if (result != 0) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-            Core::Constants::EXIT_CHECK_INTERVAL_MS)
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(
+                Core::Constants::EXIT_CHECK_INTERVAL_MS
+            )
         );
     }
 
     if (result == 0)
         return "Process still running";
+
     if (result < 0)
         return "waitpid failed: " + std::string(strerror(errno));
 
@@ -273,27 +383,38 @@ std::string Process::reap_exit_status() {
 std::string Process::decode_exit_status(int status) {
     if (WIFEXITED(status)) {
         int code = WEXITSTATUS(status);
-        return (code == 0)
+        return code == 0
             ? "Exited normally"
             : "Exited with code " + std::to_string(code);
-    } else if (WIFSIGNALED(status)) {
+    }
+
+    if (WIFSIGNALED(status)) {
         int sig = WTERMSIG(status);
+
         switch (sig) {
-            case SIGKILL: return "Killed by SIGKILL (killed/OOM)";
-            case SIGSEGV: return "Killed by SIGSEGV (segfault)";
-            case SIGABRT: return "Killed by SIGABRT (abort)";
-            case SIGTERM: return "Killed by SIGTERM (terminated)";
-            default:      return "Killed by signal " + std::to_string(sig);
+            case SIGKILL:
+                return "Killed by SIGKILL (killed/OOM)";
+            case SIGSEGV:
+                return "Killed by SIGSEGV (segfault)";
+            case SIGABRT:
+                return "Killed by SIGABRT (abort)";
+            case SIGTERM:
+                return "Killed by SIGTERM (terminated)";
+            default:
+                return "Killed by signal " + std::to_string(sig);
         }
     }
+
     return "Unknown exit status";
 }
 
 void Process::read_available_data(int timeout_ms) {
     struct pollfd pfd = {out_fd_, POLLIN, 0};
     struct timespec ts = {
-        timeout_ms / 1000, (timeout_ms % 1000) * 1000000L
+        timeout_ms / 1000,
+        (timeout_ms % 1000) * 1000000L
     };
+
     sigset_t empty_mask;
     sigemptyset(&empty_mask);
 
@@ -302,41 +423,55 @@ void Process::read_available_data(int timeout_ms) {
         ret = ppoll(&pfd, 1, &ts, &empty_mask);
     } while (ret < 0 && errno == EINTR);
 
-    if (ret < 0) throw std::runtime_error("Poll failed");
+    if (ret < 0)
+        throw std::runtime_error("Poll failed");
+
     if (ret == 0) return;
 
-    if ((pfd.revents & (POLLHUP | POLLERR)) && !(pfd.revents & POLLIN)) {
-        throw Core::PlayerError("Process died: " + reap_exit_status());
+    if ((pfd.revents & (POLLHUP | POLLERR)) &&
+        !(pfd.revents & POLLIN)) {
+        throw Core::PlayerError(
+            "Process died: " + reap_exit_status()
+        );
     }
 
     if (!(pfd.revents & POLLIN)) return;
 
     char tmp[Core::Constants::READ_BUFFER_SIZE];
     ssize_t n = read(out_fd_, tmp, sizeof(tmp));
-    if (n <= 0) throw Core::PlayerError("Process died: " + reap_exit_status());
 
-    if (buf_.size() + n > Core::Constants::PROCESS_BUFFER_MAX) {
-        throw Core::PlayerError("Process Output Buffer Overflow");
+    if (n <= 0)
+        throw Core::PlayerError(
+            "Process died: " + reap_exit_status()
+        );
+
+    if (buf_.size() + n >
+        Core::Constants::PROCESS_BUFFER_MAX) {
+        throw Core::PlayerError(
+            "Process Output Buffer Overflow"
+        );
     }
+
     buf_.append(tmp, n);
 }
 
 std::string Process::resolve_path(const std::string& file) {
-    if (file.find('/') != std::string::npos) return file;
+    if (file.find('/') != std::string::npos)
+        return file;
 
     const char* path_env = getenv("PATH");
     if (!path_env) return file;
 
-    std::string path_str = path_env;
-    std::stringstream ss(path_str);
+    std::stringstream ss(path_env);
     std::string dir;
 
     while (std::getline(ss, dir, ':')) {
         std::string full_path = dir + "/" + file;
-        if (access(full_path.c_str(), X_OK) == 0) {
+
+        if (access(full_path.c_str(), X_OK) == 0)
             return full_path;
-        }
     }
+
     return file;
 }
 
