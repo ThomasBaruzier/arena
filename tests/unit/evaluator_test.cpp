@@ -64,6 +64,39 @@ private:
     std::string last_command_;
 };
 
+class StartReadFailProcess : public Sys::Process {
+public:
+    StartReadFailProcess() :
+        Sys::Process("start-read-fail")
+    {}
+
+    bool start(
+        long long,
+        const std::map<std::string, std::string>&
+    ) override {
+        return true;
+    }
+
+    void terminate() override {
+        terminated = true;
+    }
+
+    bool write_line(const std::string&) override {
+        return true;
+    }
+
+    std::optional<std::string> read_line(
+        int,
+        long*
+    ) override {
+        throw std::runtime_error(
+            "startup read failed"
+        );
+    }
+
+    bool terminated = false;
+};
+
 }
 
 class EvaluatorTest : public ::testing::Test {
@@ -474,6 +507,23 @@ TEST_F(EvaluatorTest, StartRejectsInvalidResponse) {
     );
 
     EXPECT_FALSE(evaluator.start());
+}
+
+TEST_F(EvaluatorTest, StartHandlesReadFailure) {
+    auto raw_process = new StartReadFailProcess();
+    std::unique_ptr<Sys::Process> process(raw_process);
+
+    Analysis::Evaluator evaluator(
+        "dummy",
+        15,
+        1000,
+        false,
+        1000,
+        std::move(process)
+    );
+
+    EXPECT_FALSE(evaluator.start());
+    EXPECT_TRUE(raw_process->terminated);
 }
 
 TEST_F(EvaluatorTest, EmptyMoveListReturnsNoMetric) {

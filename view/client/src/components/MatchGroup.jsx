@@ -301,7 +301,9 @@ export default function MatchGroup({
 
   const progress =
     run && run.total_games > 0 ? (run.games_played / run.total_games) * 100 : 0;
-  const finished = run && run.total_games > 0 && run.games_played >= run.total_games;
+  const finished =
+    Boolean(run?.is_done) ||
+    (run && run.total_games > 0 && run.games_played >= run.total_games);
 
   const fetchGames = useCallback(
     (sortConfig, offset = 0, append = false) => {

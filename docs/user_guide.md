@@ -107,7 +107,13 @@ NDJSON output contains configuration, score, timing, evaluator metrics, and slot
 
 The `view/` directory contains the live API and frontend.
 
-Start the production viewer with:
+Configure the viewer API key before starting production:
+
+```sh
+cp view/.env.example view/.env
+```
+
+Replace `changeme` in `view/.env`, then start the production viewer:
 
 ```sh
 make view-prod

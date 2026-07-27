@@ -186,7 +186,8 @@ static void finalize_run(
                 event.run_id = context->id;
                 event.is_done = true;
                 event.timed_out = timed_out;
-                event.games_played = handled;
+                event.games_played =
+                    context->games_completed.load();
 
                 {
                     std::lock_guard<std::mutex> lock(

@@ -49,7 +49,7 @@ $(NAME): $(OBJS)
 
 engine:
 	mkdir -p $(RAPFI_DIR)/build
-	cd $(RAPFI_DIR)/build && cmake .. -DNO_COMMAND_MODULES=ON && $(MAKE) -j$(nproc)
+	cd $(RAPFI_DIR)/build && cmake .. -DNO_COMMAND_MODULES=ON && $(MAKE) -j"$$(nproc)"
 	cp $(RAPFI_DIR)/build/$(ENGINE_NAME) .
 
 test: test-cpp test-sh

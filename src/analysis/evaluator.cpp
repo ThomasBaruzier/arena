@@ -62,64 +62,76 @@ Evaluator::Evaluator(
 }
 
 bool Evaluator::start() {
-    if (!process_->start(0)) {
-        Core::Logger::log(
-            Core::Logger::Level::ERROR,
-            "Evaluator: failed to start process"
-        );
-        return false;
-    }
+    try {
+        if (!process_->start(0)) {
+            Core::Logger::log(
+                Core::Logger::Level::ERROR,
+                "Evaluator: failed to start process"
+            );
+            return false;
+        }
 
-    if (
-        !send_cmd(
-            "START " +
-            std::to_string(board_size_)
-        )
-    ) {
-        process_->terminate();
-        return false;
-    }
-
-    long elapsed = 0;
-    auto response =
-        process_->read_line(cutoff_, &elapsed);
-
-    if (
-        !response ||
-        !is_ok_response(*response)
-    ) {
-        Core::Logger::log(
-            Core::Logger::Level::ERROR,
-            "Evaluator: START failed, got: ",
-            response.value_or("(timeout)")
-        );
-        process_->terminate();
-        return false;
-    }
-
-    if (
-        !send_cmd("INFO timeout_turn 0") ||
-        !send_cmd("INFO timeout_match 0") ||
-        !send_cmd(
-            "INFO THREAD_NUM " +
-            std::to_string(
-                Core::Constants::PROTOCOL_THREAD_NUM
+        if (
+            !send_cmd(
+                "START " +
+                std::to_string(board_size_)
             )
-        ) ||
-        !send_cmd(
-            "INFO MAX_NODE " +
-            std::to_string(max_nodes_)
-        )
-    ) {
+        ) {
+            process_->terminate();
+            return false;
+        }
+
+        long elapsed = 0;
+        auto response =
+            process_->read_line(cutoff_, &elapsed);
+
+        if (
+            !response ||
+            !is_ok_response(*response)
+        ) {
+            Core::Logger::log(
+                Core::Logger::Level::ERROR,
+                "Evaluator: START failed, got: ",
+                response.value_or("(timeout)")
+            );
+            process_->terminate();
+            return false;
+        }
+
+        if (
+            !send_cmd("INFO timeout_turn 0") ||
+            !send_cmd("INFO timeout_match 0") ||
+            !send_cmd(
+                "INFO THREAD_NUM " +
+                std::to_string(
+                    Core::Constants::PROTOCOL_THREAD_NUM
+                )
+            ) ||
+            !send_cmd(
+                "INFO MAX_NODE " +
+                std::to_string(max_nodes_)
+            )
+        ) {
+            Core::Logger::log(
+                Core::Logger::Level::ERROR,
+                "Evaluator: initialization write failed"
+            );
+            process_->terminate();
+            return false;
+        }
+
+        return true;
+    } catch (const Core::MatchTerminated&) {
+        throw;
+    } catch (const std::exception& error) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
-            "Evaluator: initialization write failed"
+            "Evaluator: startup failed: ",
+            error.what()
         );
         process_->terminate();
         return false;
     }
-
-    return true;
 }
 
 bool Evaluator::restart() {
