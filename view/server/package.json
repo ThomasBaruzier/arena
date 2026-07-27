@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
-    "test:watch": "node --experimental-vm-modules node_modules/vitest/vitest.mjs",
+    "test": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
+    "test:watch": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check *.js"

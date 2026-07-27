@@ -1,32 +1,45 @@
-FROM node:22-alpine AS base
+FROM node:22-alpine AS dependencies
+
 WORKDIR /app
-COPY package.json .
 
-FROM base AS deps
-RUN npm install
+COPY package*.json ./
+RUN npm ci
 
-FROM base AS production-deps
-RUN npm install --omit=dev
+FROM dependencies AS builder
 
-FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM base AS development
+FROM node:22-alpine AS production-dependencies
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+FROM dependencies AS development
+
 RUN apk add --no-cache curl
-COPY --from=deps /app/node_modules ./node_modules
+
 COPY . .
+
 EXPOSE 3000
-CMD ["npm", "run", "dev", "--", "--host", "--port", "3000"]
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
 
 FROM node:22-alpine AS production
+
 RUN apk add --no-cache curl
+
 WORKDIR /app
-USER node
-COPY --from=production-deps /app/node_modules ./node_modules
+
+COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/server.js ./
-COPY --from=builder /app/package.json ./
+COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/package.json ./package.json
+
+USER node
+
 EXPOSE 3000
+
 CMD ["node", "server.js"]

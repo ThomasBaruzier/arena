@@ -1,111 +1,127 @@
-import { useState, useEffect, useReducer, useCallback } from 'react';
-import { matchupKey, compareHeroOrder, getEventRunId, getRunId, sameSlotPair } from '../utils';
+import { useCallback, useEffect, useReducer, useState } from 'react';
+import { getEventRunId, getRunId, matchupKey, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
 const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'game_result']);
-const sameId = (a, b) => String(a) === String(b);
+const sameId = (first, second) => String(first) === String(second);
+
+const playerFromGame = (game, runId, slot) => {
+  const black = game.black_slot === slot;
+
+  return {
+    id: `${runId}:${slot}`,
+    slot,
+    name: black ? game.black_name : game.white_name,
+    version: black ? game.black_ver : game.white_ver
+  };
+};
+
+const playerFromRun = (run, runId, slot, current) => {
+  const side = slot === 1 ? 'slot1' : 'slot2';
+
+  return {
+    ...current,
+    id: `${runId}:${slot}`,
+    slot,
+    name: run[`${side}_name`] ?? current?.name,
+    version: run[`${side}_version`] ?? current?.version,
+    cmd: run[`${side}_cmd`] ?? current?.cmd
+  };
+};
 
 export const matchupsReducer = (state, action) => {
   switch (action.type) {
     case 'SET':
       return action.data;
     case 'APPEND':
-      return [...new Map([...state, ...action.data].map((m) => [matchupKey(m), m])).values()];
+      return [
+        ...new Map(
+          [...state, ...action.data].map((matchup) => [matchupKey(matchup), matchup])
+        ).values()
+      ];
     case 'RESET':
       return [];
     case 'game_start': {
-      const e = action.event;
-      if (!e.game) return state;
-      const tid = getEventRunId(e);
-      if (!tid) return state;
-      const idx = state.findIndex((m) => sameId(getRunId(m), tid));
-      if (idx !== -1) {
+      const event = action.event;
+      if (!event.game) return state;
+
+      const runId = getEventRunId(event);
+      if (!runId) return state;
+
+      const existingIndex = state.findIndex((matchup) =>
+        sameId(getRunId(matchup), runId)
+      );
+
+      if (existingIndex !== -1) {
+        const current = state[existingIndex];
         const updated = {
-          ...state[idx],
-          runId: tid,
-          lastActivity: e.game.timestamp,
-          live_count: (state[idx].live_count || 0) + (e.game.winner_color === 0 ? 1 : 0)
+          ...current,
+          runId,
+          lastActivity: event.game.timestamp,
+          live_count:
+            (current.live_count || 0) + (event.game.winner_color === 0 ? 1 : 0)
         };
-        return [updated, ...state.filter((_, i) => i !== idx)];
+
+        return [updated, ...state.filter((_, index) => index !== existingIndex)];
       }
-      const p1 = { id: `${tid}:1`, slot: 1, name: e.game.black_slot === 1 ? e.game.black_name : e.game.white_name, version: e.game.black_slot === 1 ? e.game.black_ver : e.game.white_ver };
-      const p2 = { id: `${tid}:2`, slot: 2, name: e.game.black_slot === 2 ? e.game.black_name : e.game.white_name, version: e.game.black_slot === 2 ? e.game.black_ver : e.game.white_ver };
-      const isP1Hero = compareHeroOrder(p1, p2) >= 0;
+
       return [
         {
-          runId: tid,
-          hero: isP1Hero ? p1 : p2,
-          villain: isP1Hero ? p2 : p1,
+          runId,
+          hero: playerFromGame(event.game, runId, 1),
+          villain: playerFromGame(event.game, runId, 2),
           heroWins: 0,
           villainWins: 0,
           draws: 0,
           total: 0,
-          live_count: e.game.winner_color === 0 ? 1 : 0,
-          lastActivity: e.game.timestamp
+          live_count: event.game.winner_color === 0 ? 1 : 0,
+          lastActivity: event.game.timestamp
         },
         ...state
       ];
     }
     case 'run_update': {
       const run = action.event.run || action.event;
-      const tid = getEventRunId(action.event);
-      return state.map((m) => {
-        if (!sameId(getRunId(m), tid)) return m;
+      const runId = getEventRunId(action.event);
 
-        let hero = m.hero;
-        let villain = m.villain;
-        let heroWins = m.heroWins;
-        let villainWins = m.villainWins;
-        if (typeof run.wins === 'number' && run.slot1_name) {
-          const slot1 = {
-            id: `${tid}:1`,
-            slot: 1,
-            name: run.slot1_name,
-            version: run.slot1_version,
-            cmd: run.slot1_cmd,
-            mtime: run.slot1_mtime
-          };
-          const slot2 = {
-            id: `${tid}:2`,
-            slot: 2,
-            name: run.slot2_name,
-            version: run.slot2_version,
-            cmd: run.slot2_cmd,
-            mtime: run.slot2_mtime
-          };
-          const slot1IsHero = compareHeroOrder(slot1, slot2) >= 0;
-          hero = slot1IsHero ? slot1 : slot2;
-          villain = slot1IsHero ? slot2 : slot1;
-          heroWins = slot1IsHero ? run.wins : run.losses;
-          villainWins = slot1IsHero ? run.losses : run.wins;
-        } else if (typeof run.wins === 'number') {
-          heroWins = run.wins;
-          villainWins = run.losses;
-        }
+      return state.map((matchup) => {
+        if (!sameId(getRunId(matchup), runId)) return matchup;
 
         return {
-          ...m,
-          hero,
-          villain,
-          heroWins,
-          villainWins,
-          draws: run.draws ?? m.draws,
-          total: run.games_played ?? m.total
+          ...matchup,
+          hero: playerFromRun(run, runId, 1, matchup.hero),
+          villain: playerFromRun(run, runId, 2, matchup.villain),
+          heroWins: typeof run.wins === 'number' ? run.wins : matchup.heroWins,
+          villainWins:
+            typeof run.losses === 'number' ? run.losses : matchup.villainWins,
+          draws: run.draws ?? matchup.draws,
+          total: run.games_played ?? matchup.total
         };
       });
     }
     case 'game_result': {
-      const e = action.event;
-      const tid = getEventRunId(e);
-      return state.map((m) => {
-        const isMatch =
-          sameId(getRunId(m), tid) &&
-          sameSlotPair(m.hero.slot, m.villain.slot, e.black_slot, e.white_slot);
-        if (!isMatch) return m;
+      const event = action.event;
+      const runId = getEventRunId(event);
+
+      return state.map((matchup) => {
+        const matches =
+          sameId(getRunId(matchup), runId) &&
+          sameSlotPair(
+            matchup.hero.slot,
+            matchup.villain.slot,
+            event.black_slot,
+            event.white_slot
+          );
+
+        if (!matches) return matchup;
+
         return {
-          ...m,
+          ...matchup,
           lastActivity: new Date().toISOString(),
-          live_count: e.winner_color === 0 ? m.live_count || 0 : Math.max(0, (m.live_count || 0) - 1)
+          live_count:
+            event.winner_color === 0
+              ? matchup.live_count || 0
+              : Math.max(0, (matchup.live_count || 0) - 1)
         };
       });
     }
@@ -128,15 +144,17 @@ export function useMatchups(subscribe) {
     fetch(`${API_BASE}/matchups?limit=20&offset=${page * 20}`, {
       signal: controller.signal
     })
-      .then((r) => r.json())
+      .then((response) => response.json())
       .then((data) => {
-        if (page === 0) dispatch({ type: 'SET', data });
-        else dispatch({ type: 'APPEND', data });
+        dispatch({
+          type: page === 0 ? 'SET' : 'APPEND',
+          data
+        });
         setHasMore(data.length === 20);
         setLoading(false);
       })
-      .catch((e) => {
-        if (e.name !== 'AbortError') setLoading(false);
+      .catch((error) => {
+        if (error.name !== 'AbortError') setLoading(false);
       });
 
     return () => controller.abort();
@@ -145,48 +163,94 @@ export function useMatchups(subscribe) {
   const loadMore = useCallback((reset = false) => {
     if (reset) {
       setPage(0);
-      setResetToken((t) => t + 1);
+      setResetToken((token) => token + 1);
     } else {
-      setPage((p) => p + 1);
+      setPage((current) => current + 1);
     }
   }, []);
 
-  useEffect(() => {
-    return subscribe((e) => {
-      if (e.type === 'reset') {
-        dispatch({ type: 'RESET' });
-        loadMore(true);
-      } else if (e.type === 'run_start') loadMore(true);
-      else if (REDUCER_EVENTS.has(e.type)) dispatch({ type: e.type, event: e });
-    });
-  }, [subscribe, loadMore]);
+  useEffect(
+    () =>
+      subscribe((event) => {
+        if (event.type === 'reset') {
+          dispatch({ type: 'RESET' });
+          loadMore(true);
+        } else if (event.type === 'run_start') {
+          loadMore(true);
+        } else if (REDUCER_EVENTS.has(event.type)) {
+          dispatch({
+            type: event.type,
+            event
+          });
+        }
+      }),
+    [subscribe, loadMore]
+  );
 
-  return { matchups, loading, hasMore, loadMore };
+  return {
+    matchups,
+    loading,
+    hasMore,
+    loadMore
+  };
 }
 
 export function useRuns(subscribe) {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchRuns = useCallback(() => {
-    fetch(`${API_BASE}/runs`)
-      .then((r) => r.json())
+  const refresh = useCallback(() => {
+    setLoading(true);
+
+    return fetch(`${API_BASE}/runs`)
+      .then((response) => response.json())
       .then(setRuns)
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
-  useEffect(() => {
-    return subscribe((e) => {
-      if (e.type === 'reset') fetchRuns();
-      else if (e.type === 'run_start')
-        setRuns((p) => [e.run, ...p.filter((r) => !sameId(r.id, e.run.id))]);
-      else if (e.type === 'run_update')
-        setRuns((p) => p.map((r) => (sameId(r.id, e.run.id) ? { ...r, ...e.run } : r)));
-    });
-  }, [subscribe, fetchRuns]);
+    refresh();
+  }, [refresh]);
 
-  return { runs, loading };
+  useEffect(
+    () =>
+      subscribe((event) => {
+        if (event.type === 'reset') {
+          refresh();
+        } else if (event.type === 'run_start' && event.run) {
+          setRuns((current) => [
+            event.run,
+            ...current.filter((run) => !sameId(run.id, event.run.id))
+          ]);
+        } else if (event.type === 'run_update' && event.run) {
+          setRuns((current) =>
+            current.map((run) =>
+              sameId(run.id, event.run.id) ? { ...run, ...event.run } : run
+            )
+          );
+        }
+      }),
+    [subscribe, refresh]
+  );
+
+  return {
+    runs,
+    loading,
+    refresh
+  };
+}
+
+export function useData(subscribe) {
+  const matchups = useMatchups(subscribe);
+  const runs = useRuns(subscribe);
+
+  return {
+    matchups: matchups.matchups,
+    matchupsLoading: matchups.loading,
+    matchupsHasMore: matchups.hasMore,
+    loadMoreMatchups: matchups.loadMore,
+    runs: runs.runs,
+    runsLoading: runs.loading,
+    refreshRuns: runs.refresh
+  };
 }
