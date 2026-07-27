@@ -1,68 +1,130 @@
 # User guide
 
-This guide covers the command line interface, batch execution modes, and visualization setup.
+This guide covers command-line usage, batch execution, opening files, and the live viewer.
 
-## Command line arguments
+## Command-line arguments
 
 ### Players
-* `-1`, `--p1 <cmd>`: executable for player 1
-* `-2`, `--p2 <cmd>`: executable for player 2
-* `-e`, `--eval <cmd>`: executable for the evaluator engine (optional)
 
-### Match configuration
-* `-s`, `--size <int>`: board size (5-40, default: 20)
-* `-M`, `--max-pairs <int>`: total pairs to play per configuration
-* `-m`, `--min-pairs <int>`: minimum pairs before early termination checks
-* `-o`, `--openings <file>`: path to file containing opening moves
-* `--shuffle-openings`: randomize the order of openings
-* `--repeat <int>`: number of times to repeat the entire configuration
-* `--seed <list>`: comma-separated list of random seeds
+* `-1`, `--p1 <cmd>`: player 1 executable
+* `-2`, `--p2 <cmd>`: player 2 executable
+* `-e`, `--eval <cmd>`: evaluator executable
+* `-L`: enable lenient output handling for both players
+* `-L1`, `-L2`: enable lenient output handling for one player
+
+### Game configuration
+
+* `-s`, `--size <int>`: board size from 5 through 40
+* `-o`, `--openings <file>`: opening positions file
+* `--shuffle-openings`: randomize opening order
+* `-B`, `--force-board`: send the complete board before every move
 
 ### Time control
-* `-t`, `--timeout-announce <time>`: thinking time hint sent to bots (default: 5s)
-* `-T`, `--timeout-cutoff <time>`: hard limit for turn duration
-* `-g`, `--timeout-game <time>`: total time bank for the game
-* Note: suffixes `1` or `2` (e.g., `-t1`, `-g2`) apply settings to specific players.
+
+* `-t`, `--timeout-announce <time>`: thinking-time hint sent to both players
+* `-T`, `--timeout-cutoff <time>`: hard turn deadline
+* `-g`, `--timeout-game <time>`: total game time bank
+* Player-specific forms use suffixes `1` and `2`, such as `-t1` and `-g2`
+* Supported units are `ms`, `s`, `m`, and `h`
+* A value without a unit is interpreted as seconds
+* Time values must be finite and non-negative
 
 ### Resources
-* `-j`, `--threads <int>`: number of concurrent games
-* `-l`, `--memory <size>`: memory limit per bot (e.g., 512m, 1g)
-* `-N`, `--max-nodes <count>`: limit search nodes for deterministic play
 
-### Api and output
-* `--api-url <url>`: endpoint for live updates
-* `--api-key <key>`: authentication key for the api
-* `--export-results <file>`: path to write ndjson results
+* `-j`, `--threads <int>`: concurrent games
+* `-l`, `--memory <size>`: memory limit for both players
+* `-N`, `--max-nodes <count>`: node limit for both players
+* Player-specific forms use suffixes `1` and `2`
+* `-Ne`, `--eval-max-nodes <count>`: evaluator node limit
+* Memory units are `k`, `m`, and `g`; a value without a unit is interpreted as MiB
+* Node suffixes are `k`, `m`, `b`, and `g`
+* Resource values must be finite and non-negative
+
+### Match control
+
+* `-m`, `--min-pairs <int>`: minimum pairs before early stopping
+* `-M`, `--max-pairs <int>`: maximum pairs
+* `-r`, `--risk <float>`: early-stop risk from 0 through 1
+* `--repeat <int>`: repeat each generated configuration
+* `--seed <list>`: comma-separated random seeds
+
+Thread count, repeat count, and pair counts must be positive. Explicit thread counts cannot exceed detected hardware concurrency when that value is available.
+
+### API and output
+
+* `--api-url <url>`: live viewer API endpoint
+* `--api-key <key>`: matching API key
+* `--debounce <time>`: API update interval
+* `--cleanup`: clear viewer data before starting
+* `--export-results <file>`: write one NDJSON object per completed configuration
+
+API URL and API key must be provided together.
+
+### Debugging
+
+* `-b`, `--show-board`: print the board after moves
 * `-d`, `--debug`: enable verbose logging
-* `-b`, `--show-board`: print ascii board after moves
+* `--exit-on-crash`: stop on a player or evaluator failure
+* `-h`, `--help`: show command help
 
 ## Batch execution
 
-The arena supports running multiple configurations in sequence. Arguments taking lists (comma-separated) trigger batch mode.
+Comma-separated values create multiple configurations.
 
-### Diagonal expansion
-If `-N` (common nodes) is provided with multiple values, both players use the same settings for each run.
-Example: `-N 100k,200k` creates 2 runs:
-1.  p1=100k, p2=100k
-2.  p1=200k, p2=200k
+A common node list applies the same value to both players:
 
-### Cross product expansion
-If `-N1` and `-N2` are provided separately, the arena generates every combination.
-Example: `-N1 10k,20k -N2 100k` creates 2 runs:
-1.  p1=10k, p2=100k
-2.  p1=20k, p2=100k
+```sh
+./arena -1 ./p1 -2 ./p2 -N 100k,200k -M 20
+```
+
+Separate player lists create a Cartesian product:
+
+```sh
+./arena -1 ./p1 -2 ./p2 -N1 100k,200k -N2 500k,1m -M 20
+```
+
+`--repeat` repeats every generated configuration. Seeds are assigned by repeat index when supplied.
+
+If a selected minimum-pair count exceeds a selected maximum-pair count, that generated run uses the maximum as its minimum.
+
+## Opening files
+
+Each non-empty line contains a sequence of letter-number coordinates:
+
+```text
+j10k11i9
+```
+
+Columns are letters and rows start at one. Opening syntax is strict. Whitespace, separators, missing rows, row zero, and unrelated characters are rejected.
+
+Before games are queued, every opening is checked against the selected board size. Out-of-bounds moves and repeated coordinates are rejected.
+
+## Results
+
+NDJSON output contains configuration, score, timing, evaluator metrics, and slot-specific statistics. One line is written for each completed batch configuration.
 
 ## Web visualization
 
-The `view/` directory contains a full-stack application for monitoring tournaments.
+The `view/` directory contains the live API and frontend.
 
-### Setup
-1.  Navigate to `view/`
-2.  Copy `.env.example` to `.env`
-3.  Adjust ports if necessary
+Start the production viewer with:
 
-### Running
-* Production: `make view-prod` (builds and runs optimized containers)
-* Development: `make view-dev` (enables hot-reloading)
+```sh
+make view-prod
+```
 
-Once running, ensure the arena is started with `--api-url http://localhost:3001` (or your configured port) and the matching `--api-key`.
+Start the development viewer with:
+
+```sh
+make view-dev
+```
+
+Run arena with the viewer endpoint and matching key:
+
+```sh
+./arena \
+  -1 ./p1 \
+  -2 ./p2 \
+  --api-url http://localhost:3001 \
+  --api-key changeme
+```

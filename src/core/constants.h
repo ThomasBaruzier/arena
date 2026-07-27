@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace Arena::Core::Constants {
     constexpr int DEFAULT_THREADS = 4;
@@ -58,10 +58,11 @@ namespace Arena::Core::Constants {
 
     constexpr int API_TIMEOUT_SEC = 10;
     constexpr size_t API_QUEUE_MAX = 5000;
+    constexpr size_t API_BATCH_MAX = 100;
+    constexpr size_t API_BATCH_EAGER_SIZE = 50;
     constexpr int API_BACKOFF_MIN_SEC = 2;
     constexpr int API_BACKOFF_MAX_SEC = 10;
     constexpr int API_SHUTDOWN_MAX_RETRIES = 3;
-    constexpr int API_SHUTDOWN_BACKOFF_SEC = 1;
 
     constexpr uint64_t ZOBRIST_SEED = 12345;
     constexpr long long PROCESS_MEMORY_OVERHEAD = 128 * 1048576;

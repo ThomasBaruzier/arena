@@ -4,5 +4,7 @@
 
 namespace Arena::Sys {
     extern volatile sig_atomic_t g_stop_flag;
+
     void signal_handler(int);
+    bool install_termination_handlers();
 }

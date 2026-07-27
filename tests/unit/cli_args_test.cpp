@@ -1,9 +1,8 @@
 #include "../common/test_utils.h"
 #include "../src/app/cli.h"
-#include <vector>
-#include <string>
 #include <cstring>
 #include <thread>
+#include <vector>
 
 using namespace Arena;
 
@@ -12,315 +11,588 @@ protected:
     std::vector<char*> args;
 
     void SetUp() override {
-        unsetenv("SIZE");
-        unsetenv("OPENINGS");
-        unsetenv("TIMEOUT_ANNOUNCE");
-        add_arg("arena");
+        clear_environment();
+        add("arena");
     }
 
     void TearDown() override {
-        for (auto arg : args) free(arg);
+        for (char* argument : args) {
+            free(argument);
+        }
+
         args.clear();
-        unsetenv("SIZE");
-        unsetenv("OPENINGS");
-        unsetenv("TIMEOUT_ANNOUNCE");
+        clear_environment();
     }
 
-    void add_arg(const std::string& s) {
-        args.push_back(strdup(s.c_str()));
+    void clear_environment() {
+        for (
+            const char* name :
+            {
+                "SIZE",
+                "OPENINGS",
+                "THREADS",
+                "TIMEOUT_ANNOUNCE",
+                "TIMEOUT_CUTOFF",
+                "TIMEOUT_GAME",
+                "MEMORY",
+                "MIN_PAIRS",
+                "MAX_PAIRS",
+                "RISK",
+                "API_URL",
+                "API_KEY",
+                "DEBOUNCE"
+            }
+        ) {
+            unsetenv(name);
+        }
+    }
+
+    void add(const std::string& value) {
+        args.push_back(
+            strdup(value.c_str())
+        );
+    }
+
+    void players() {
+        add("-1");
+        add("p1");
+        add("-2");
+        add("p2");
     }
 
     Core::BatchConfig parse() {
-        return App::CLI::parse_batch_args(args.size(), args.data());
+        return App::CLI::parse_batch_args(
+            static_cast<int>(args.size()),
+            args.data()
+        );
     }
 };
 
-TEST_F(CliArgsTest, BasicRequiredArgs) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
+TEST_F(CliArgsTest, RequiredArguments) {
+    players();
 
-    auto bc = parse();
-    EXPECT_EQ(bc.p1_cmd, "p1");
-    EXPECT_EQ(bc.p2_cmd, "p2");
-    EXPECT_EQ(bc.board_size, 20);
+    auto batch = parse();
+
+    EXPECT_EQ(batch.p1_cmd, "p1");
+    EXPECT_EQ(batch.p2_cmd, "p2");
+    EXPECT_EQ(batch.board_size, 20);
 }
 
-TEST_F(CliArgsTest, LongFlags) {
-    add_arg("--p1"); add_arg("cmd1");
-    add_arg("--p2"); add_arg("cmd2");
-    add_arg("--size"); add_arg("15");
+TEST_F(CliArgsTest, LongArguments) {
+    add("--p1");
+    add("cmd1");
+    add("--p2");
+    add("cmd2");
+    add("--size");
+    add("15");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.p1_cmd, "cmd1");
-    EXPECT_EQ(bc.p2_cmd, "cmd2");
-    EXPECT_EQ(bc.board_size, 15);
+    auto batch = parse();
+
+    EXPECT_EQ(batch.p1_cmd, "cmd1");
+    EXPECT_EQ(batch.p2_cmd, "cmd2");
+    EXPECT_EQ(batch.board_size, 15);
 }
 
-TEST_F(CliArgsTest, Timeouts) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--timeout-announce"); add_arg("5s");
-    add_arg("--p2-timeout-announce"); add_arg("10s");
-
-    auto bc = parse();
-    EXPECT_EQ(bc.p1_timeout_announce, 5000);
-    EXPECT_EQ(bc.p2_timeout_announce, 10000);
+TEST_F(CliArgsTest, MissingRequiredArguments) {
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, MemoryParsing) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--memory"); add_arg("1g");
+TEST_F(CliArgsTest, MissingOptionValue) {
+    players();
+    add("--size");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.p1_memory, 1024LL * 1024 * 1024);
-    EXPECT_EQ(bc.p2_memory, 1024LL * 1024 * 1024);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
+}
+
+TEST_F(CliArgsTest, ValidTimeouts) {
+    players();
+    add("--timeout-announce");
+    add("5s");
+    add("--p2-timeout-announce");
+    add("10s");
+    add("--eval-timeout-cutoff");
+    add("30s");
+
+    auto batch = parse();
+
+    EXPECT_EQ(
+        batch.p1_timeout_announce,
+        5000
+    );
+    EXPECT_EQ(
+        batch.p2_timeout_announce,
+        10000
+    );
+    EXPECT_EQ(
+        batch.eval_timeout_cutoff,
+        30000
+    );
+}
+
+TEST_F(CliArgsTest, RejectsInvalidTimeouts) {
+    players();
+    add("--timeout-announce");
+    add("1x");
+
+    EXPECT_THROW(
+        parse(),
+        std::exception
+    );
+}
+
+TEST_F(CliArgsTest, RejectsNegativeTimeouts) {
+    players();
+    add("--timeout-game");
+    add("-1s");
+
+    EXPECT_THROW(
+        parse(),
+        std::exception
+    );
+}
+
+TEST_F(CliArgsTest, ValidMemory) {
+    players();
+    add("--memory");
+    add("1g");
+
+    auto batch = parse();
+
+    EXPECT_EQ(
+        batch.p1_memory,
+        1024LL * 1024 * 1024
+    );
+    EXPECT_EQ(
+        batch.p2_memory,
+        1024LL * 1024 * 1024
+    );
+}
+
+TEST_F(CliArgsTest, RejectsInvalidMemory) {
+    players();
+    add("--memory");
+    add("1x");
+
+    EXPECT_THROW(
+        parse(),
+        std::exception
+    );
 }
 
 TEST_F(CliArgsTest, NodeLists) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-N"); add_arg("1k,2k");
+    players();
+    add("-N");
+    add("1k,2k");
 
-    auto bc = parse();
-    ASSERT_EQ(bc.common_nodes_list.size(), 2);
-    EXPECT_EQ(bc.common_nodes_list[0], 1000);
-    EXPECT_EQ(bc.common_nodes_list[1], 2000);
+    auto batch = parse();
+
+    EXPECT_EQ(
+        batch.common_nodes_list,
+        (
+            std::vector<uint64_t>{
+                1000,
+                2000
+            }
+        )
+    );
 }
 
-TEST_F(CliArgsTest, EnvVars) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    setenv("SIZE", "20", 1);
+TEST_F(CliArgsTest, RejectsMalformedNodeList) {
+    players();
+    add("-N");
+    add("1k,,2k");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.board_size, 20);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, InvalidBoardSize) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-s"); add_arg("1");
+TEST_F(CliArgsTest, RejectsUnknownNodeSuffix) {
+    players();
+    add("-N");
+    add("1x");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::exception
+    );
 }
 
-TEST_F(CliArgsTest, MissingRequired) {
-    EXPECT_THROW(parse(), std::runtime_error);
+TEST_F(CliArgsTest, RejectsOversizedJsonNodeCount) {
+    players();
+    add("-N");
+    add("9007199254740992");
+
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, ThreadLimit) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-j"); add_arg("1000");
+TEST_F(CliArgsTest, EnvironmentValues) {
+    players();
+    setenv("SIZE", "15", 1);
+    setenv("TIMEOUT_ANNOUNCE", "2s", 1);
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    auto batch = parse();
+
+    EXPECT_EQ(batch.board_size, 15);
+    EXPECT_EQ(
+        batch.p1_timeout_announce,
+        2000
+    );
+    EXPECT_EQ(
+        batch.p2_timeout_announce,
+        2000
+    );
 }
 
-TEST_F(CliArgsTest, PairsList) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-m"); add_arg("5,10");
+TEST_F(CliArgsTest, RejectsMalformedEnvironmentValues) {
+    players();
+    setenv("SIZE", "15x", 1);
 
-    auto bc = parse();
-    ASSERT_EQ(bc.min_pairs_list.size(), 2);
-    EXPECT_EQ(bc.min_pairs_list[0], 5);
-    EXPECT_EQ(bc.min_pairs_list[1], 10);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, UnknownLongFlag) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--unknown-flag");
+TEST_F(CliArgsTest, BoardSizeBounds) {
+    players();
+    add("-s");
+    add("5");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_EQ(parse().board_size, 5);
 }
 
-TEST_F(CliArgsTest, UnknownShortFlag) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-X");
+TEST_F(CliArgsTest, RejectsSmallBoard) {
+    players();
+    add("-s");
+    add("4");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, RiskTooHigh) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-r"); add_arg("1.5");
+TEST_F(CliArgsTest, RejectsLargeBoard) {
+    players();
+    add("-s");
+    add("41");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, RiskNegative) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-r"); add_arg("-0.5");
+TEST_F(CliArgsTest, RejectsZeroThreads) {
+    players();
+    add("--threads");
+    add("0");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, ApiUrlWithoutKey) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--api-url"); add_arg("http://example.com");
+TEST_F(CliArgsTest, RejectsNegativeThreads) {
+    players();
+    add("--threads");
+    add("-1");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, ApiKeyWithoutUrl) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--api-key"); add_arg("secret123");
+TEST_F(CliArgsTest, RejectsTooManyThreadsWhenKnown) {
+    unsigned int hardware =
+        std::thread::hardware_concurrency();
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    if (hardware == 0) return;
+
+    players();
+    add("--threads");
+    add(std::to_string(hardware + 1));
+
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, ApiUrlAndKey) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--api-url"); add_arg("http://example.com/");
-    add_arg("--api-key"); add_arg("key123");
+TEST_F(CliArgsTest, PairLists) {
+    players();
+    add("-m");
+    add("5,10");
+    add("-M");
+    add("20,30");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.api_url, "http://example.com");
-    EXPECT_EQ(bc.api_key, "key123");
+    auto batch = parse();
+
+    EXPECT_EQ(
+        batch.min_pairs_list,
+        (
+            std::vector<int>{5, 10}
+        )
+    );
+    EXPECT_EQ(
+        batch.max_pairs_list,
+        (
+            std::vector<int>{20, 30}
+        )
+    );
 }
 
-TEST_F(CliArgsTest, MaxPairsZero) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-M"); add_arg("0");
+TEST_F(CliArgsTest, RejectsNonpositivePairs) {
+    players();
+    add("-m");
+    add("0");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, BoardSizeTooLarge) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-s"); add_arg("50");
+TEST_F(CliArgsTest, RejectsNegativeMaxPairs) {
+    players();
+    add("--max-pairs");
+    add("-1");
 
-    EXPECT_THROW(parse(), std::runtime_error);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, BoardSizeMinimum) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-s"); add_arg("5");
+TEST_F(CliArgsTest, RejectsInvalidRepeat) {
+    players();
+    add("--repeat");
+    add("0");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.board_size, 5);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, ExpandBatchCommonNodes) {
-    Core::BatchConfig bc;
-    bc.p1_cmd = "p1";
-    bc.p2_cmd = "p2";
-    bc.common_nodes_list = {1000, 2000};
-    bc.min_pairs_list = {5};
-    bc.max_pairs_list = {10};
-    bc.repeat = 1;
+TEST_F(CliArgsTest, RepeatAndSeeds) {
+    players();
+    add("--repeat");
+    add("3");
+    add("--seed");
+    add("100,200,300");
 
-    auto runs = App::CLI::expand_batch(bc);
-    EXPECT_EQ(runs.size(), 2);
+    auto batch = parse();
 
-    for (const auto& r : runs) {
-        EXPECT_EQ(r.p1_nodes, r.p2_nodes);
-    }
+    EXPECT_EQ(batch.repeat, 3);
+    EXPECT_EQ(
+        batch.seeds,
+        (
+            std::vector<uint64_t>{
+                100,
+                200,
+                300
+            }
+        )
+    );
 }
 
-TEST_F(CliArgsTest, ExpandBatchPerPlayerNodes) {
-    Core::BatchConfig bc;
-    bc.p1_cmd = "p1";
-    bc.p2_cmd = "p2";
-    bc.p1_nodes_list = {1000};
-    bc.p2_nodes_list = {2000, 3000};
-    bc.min_pairs_list = {5};
-    bc.max_pairs_list = {10};
-    bc.repeat = 1;
+TEST_F(CliArgsTest, RejectsNegativeSeed) {
+    players();
+    add("--seed");
+    add("-1");
 
-    auto runs = App::CLI::expand_batch(bc);
-    EXPECT_EQ(runs.size(), 2);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, GenerateConfigLabel) {
-    Core::Config cfg;
-    cfg.bot1.max_nodes = 1000000;
-    cfg.bot2.max_nodes = 1000000;
+TEST_F(CliArgsTest, RejectsRiskOutsideRange) {
+    players();
+    add("--risk");
+    add("1.5");
 
-    auto label = App::CLI::generate_config_label(cfg);
-    EXPECT_EQ(label, "N=1m");
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, GenerateConfigLabelAsymmetric) {
-    Core::Config cfg;
-    cfg.bot1.max_nodes = 1000;
-    cfg.bot2.max_nodes = 2000;
+TEST_F(CliArgsTest, RejectsNonfiniteRisk) {
+    players();
+    add("--risk");
+    add("nan");
 
-    auto label = App::CLI::generate_config_label(cfg);
-    EXPECT_NE(label.find("N1=1k"), std::string::npos);
-    EXPECT_NE(label.find("N2=2k"), std::string::npos);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, DebugFlags) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-d");
-    add_arg("-b");
+TEST_F(CliArgsTest, RejectsEmptyNormalizedApiUrl) {
+    players();
+    add("--api-url");
+    add("/");
+    add("--api-key");
+    add("key");
 
-    auto bc = parse();
-    EXPECT_TRUE(bc.debug);
-    EXPECT_TRUE(bc.show_board);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, RepeatAndSeed) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("--repeat"); add_arg("3");
-    add_arg("--seed"); add_arg("100,200,300");
+TEST_F(CliArgsTest, ApiConfigurationRequiresPair) {
+    players();
+    add("--api-url");
+    add("http://example.com");
 
-    auto bc = parse();
-    EXPECT_EQ(bc.repeat, 3);
-    ASSERT_EQ(bc.seeds.size(), 3);
-    EXPECT_EQ(bc.seeds[0], 100);
-    EXPECT_EQ(bc.seeds[1], 200);
-    EXPECT_EQ(bc.seeds[2], 300);
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
 }
 
-TEST_F(CliArgsTest, DefaultsVerification) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    auto bc = parse();
+TEST_F(CliArgsTest, ApiConfigurationTrimsSlash) {
+    players();
+    add("--api-url");
+    add("http://example.com/");
+    add("--api-key");
+    add("key");
 
-    ASSERT_FALSE(bc.min_pairs_list.empty());
-    ASSERT_FALSE(bc.max_pairs_list.empty());
-    EXPECT_EQ(bc.min_pairs_list[0], 1);
-    EXPECT_EQ(bc.max_pairs_list[0], 50);
-    EXPECT_EQ(bc.debounce_ms, 500);
-    EXPECT_EQ(bc.risk, 0.0);
+    auto batch = parse();
 
-    int hw = std::thread::hardware_concurrency();
-    int expected_threads = (hw == 0) ? 4 : std::max(1, hw/2 - 1);
-    EXPECT_EQ(bc.threads, expected_threads);
+    EXPECT_EQ(
+        batch.api_url,
+        "http://example.com"
+    );
+    EXPECT_EQ(batch.api_key, "key");
 }
 
-TEST_F(CliArgsTest, ThreadsDefaultIter) {
-    add_arg("-1"); add_arg("p1");
-    add_arg("-2"); add_arg("p2");
-    add_arg("-N"); add_arg("100k");
-    auto bc = parse();
+TEST_F(CliArgsTest, RejectsNegativeDebounce) {
+    players();
+    add("--debounce");
+    add("-1ms");
 
-    int hw = std::thread::hardware_concurrency();
-    if (hw == 0) hw = 4;
-    EXPECT_EQ(bc.threads, hw);
+    EXPECT_THROW(
+        parse(),
+        std::exception
+    );
 }
 
-TEST_F(CliArgsTest, EvalNodesDefault) {
-    Core::BatchConfig bc;
-    bc.p1_cmd = "p1"; bc.p2_cmd = "p2";
-    bc.min_pairs_list = {1}; bc.max_pairs_list = {1};
+TEST_F(CliArgsTest, Flags) {
+    players();
+    add("-d");
+    add("-b");
+    add("-L");
+    add("-B");
+    add("--cleanup");
+    add("--exit-on-crash");
+    add("--shuffle-openings");
 
-    auto runs = App::CLI::expand_batch(bc);
-    ASSERT_GT(runs.size(), 0);
-    EXPECT_EQ(runs[0].eval_nodes, 2000000ULL);
+    auto batch = parse();
+
+    EXPECT_TRUE(batch.debug);
+    EXPECT_TRUE(batch.show_board);
+    EXPECT_TRUE(batch.p1_lenient);
+    EXPECT_TRUE(batch.p2_lenient);
+    EXPECT_TRUE(batch.force_board);
+    EXPECT_TRUE(batch.cleanup);
+    EXPECT_TRUE(batch.exit_on_crash);
+    EXPECT_TRUE(batch.shuffle_openings);
+}
+
+TEST_F(CliArgsTest, RejectsUnknownFlag) {
+    players();
+    add("--unknown");
+
+    EXPECT_THROW(
+        parse(),
+        std::runtime_error
+    );
+}
+
+TEST_F(CliArgsTest, Defaults) {
+    players();
+
+    auto batch = parse();
+
+    ASSERT_EQ(
+        batch.min_pairs_list.size(),
+        1
+    );
+    ASSERT_EQ(
+        batch.max_pairs_list.size(),
+        1
+    );
+    EXPECT_EQ(
+        batch.min_pairs_list[0],
+        1
+    );
+    EXPECT_EQ(
+        batch.max_pairs_list[0],
+        50
+    );
+    EXPECT_EQ(batch.debounce_ms, 500);
+    EXPECT_EQ(batch.risk, 0.0);
+
+    unsigned int hardware =
+        std::thread::hardware_concurrency();
+    int available =
+        hardware == 0
+            ? 4
+            : static_cast<int>(hardware);
+
+    EXPECT_EQ(
+        batch.threads,
+        std::max(1, available / 2 - 1)
+    );
+}
+
+TEST_F(CliArgsTest, NodeModeUsesAllAvailableThreads) {
+    players();
+    add("-N");
+    add("100k");
+
+    auto batch = parse();
+
+    unsigned int hardware =
+        std::thread::hardware_concurrency();
+
+    EXPECT_EQ(
+        batch.threads,
+        hardware == 0
+            ? 4
+            : static_cast<int>(hardware)
+    );
+}
+
+TEST_F(CliArgsTest, ExpansionUsesDefaultEvaluatorNodes) {
+    Core::BatchConfig batch;
+    batch.p1_cmd = "p1";
+    batch.p2_cmd = "p2";
+    batch.min_pairs_list = {1};
+    batch.max_pairs_list = {1};
+
+    auto runs = App::CLI::expand_batch(batch);
+
+    ASSERT_FALSE(runs.empty());
+    EXPECT_EQ(
+        runs[0].eval_nodes,
+        Core::Constants::DEFAULT_EVAL_NODES
+    );
 }

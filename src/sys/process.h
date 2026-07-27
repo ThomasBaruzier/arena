@@ -1,18 +1,19 @@
 #pragma once
 
-#include <string>
-#include <vector>
 #include <map>
 #include <optional>
-#include <unistd.h>
+#include <string>
 #include <sys/types.h>
+#include <unistd.h>
+#include <vector>
 
 namespace Arena::Sys {
 
 class Process {
 public:
-    Process(const std::string& cmd);
+    explicit Process(const std::string& cmd);
     virtual ~Process() { terminate(); }
+
     Process(const Process&) = delete;
     Process& operator=(const Process&) = delete;
 
@@ -22,7 +23,10 @@ public:
     );
     virtual void terminate();
     virtual bool write_line(const std::string& line);
-    virtual std::optional<std::string> read_line(int timeout_ms, long* elapsed_ms);
+    virtual std::optional<std::string> read_line(
+        int timeout_ms,
+        long* elapsed_ms
+    );
 
     virtual long get_peak_mem() const { return peak_mem_kb_; }
     virtual pid_t pid() const { return pid_; }
@@ -37,8 +41,12 @@ protected:
 
 private:
     void start_child_process(
-        int in[2], int out[2], long long mem_bytes,
-        char** argv, char** envp, const char* path
+        int in[2],
+        int out[2],
+        long long mem_bytes,
+        char** argv,
+        char** envp,
+        const char* path
     );
     void send_end_signal();
     void wait_or_kill();
