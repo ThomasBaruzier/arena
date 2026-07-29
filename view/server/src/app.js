@@ -8,12 +8,30 @@ import { DB_PATH, getApiKey } from './config.js';
 const createApp = (dbPath = DB_PATH) => {
   const apiKey = getApiKey();
   const database = db.init(dbPath);
+
   repo.init(database);
 
   const app = express();
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+
+  app.use(
+    cors({
+      exposedHeaders: ['X-Arena-Generation']
+    })
+  );
+
+  app.use((req, res, next) => {
+    res.setHeader('X-Arena-Generation', db.getGeneration());
+    next();
+  });
+
+  app.use(
+    express.json({
+      limit: '10mb'
+    })
+  );
+
   app.use('/api', createRoutes(apiKey));
+
   return app;
 };
 

@@ -6,11 +6,11 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
-    "test:watch": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs",
+    "test": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs run --no-file-parallelism",
+    "test:watch": "API_KEY=test-key node --experimental-vm-modules node_modules/vitest/vitest.mjs --no-file-parallelism",
     "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check *.js"
+    "format": "prettier --write \"*.js\" \"src/**/*.js\" \"tests/**/*.js\"",
+    "format:check": "prettier --check \"*.js\" \"src/**/*.js\" \"tests/**/*.js\""
   },
   "dependencies": {
     "better-sqlite3": "^12.5.0",
@@ -18,7 +18,7 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
-    "eslint": "^9.39.2",
+    "eslint": "^10.8.0",
     "globals": "^17.0.0",
     "prettier": "^3.7.4",
     "supertest": "^7.1.4",

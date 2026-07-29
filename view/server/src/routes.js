@@ -4,36 +4,35 @@ import * as repo from './repository.js';
 import sse from './sse.js';
 import { groupIdFromExternalId } from './utils.js';
 
+const STATUSES = new Set(['live', 'ended', 'stopped']);
+
+const MATCHUP_SORTS = new Set(['id', 'moves', 'status', 'time', 'duration']);
+
+const ORDERS = new Set(['asc', 'desc']);
+
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
 const validString = (value) => typeof value === 'string' && value.trim().length > 0;
+
 const validOptionalString = (value) => value == null || typeof value === 'string';
-const normalizeString = (value) => value.trim();
-
-const normalizeVersion = (version) => {
-  const value = version == null ? '' : version.trim();
-  return value || 'unknown';
-};
-
-const validInteger = (value, min, max) =>
-  typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 
 const validFinite = (value) => typeof value === 'number' && Number.isFinite(value);
 
+const validInteger = (value, min, max = Number.MAX_SAFE_INTEGER) =>
+  Number.isSafeInteger(value) && value >= min && value <= max;
+
 const validOptionalInteger = (value, min, max = Number.MAX_SAFE_INTEGER) =>
-  value === undefined || value === null || validInteger(value, min, max);
+  value == null || validInteger(value, min, max);
 
-const validOptionalFinite = (value) =>
-  value === undefined || value === null || validFinite(value);
+const validOptionalFinite = (value) => value == null || validFinite(value);
 
-const validOptionalBoolean = (value) => value === undefined || typeof value === 'boolean';
+const validOptionalStatus = (value) => value === undefined || STATUSES.has(value);
 
-const validOptionalSafeInteger = (value, min = 0) =>
-  value === undefined ||
-  value === null ||
-  (Number.isSafeInteger(value) && value >= min);
+const normalizeVersion = (version) => {
+  const value = typeof version === 'string' ? version.trim() : '';
 
-const validBoardSize = (value) => value === undefined || validInteger(value, 5, 40);
-const normalizeBoardSize = (value) => (value === undefined ? 20 : value);
+  return value || 'unknown';
+};
 
 const integerOr = (value, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) =>
   value === undefined ? fallback : validInteger(value, min, max) ? value : fallback;
@@ -41,20 +40,31 @@ const integerOr = (value, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) =>
 const finiteOr = (value, fallback) =>
   value === undefined ? fallback : validFinite(value) ? value : fallback;
 
-const booleanFlagOr = (value, fallback) =>
-  value === undefined ? fallback : value === true ? 1 : value === false ? 0 : fallback;
+const nextStatus = (current, incoming) => {
+  if (current !== 'live') return current;
+  return incoming ?? current;
+};
 
 const parseQueryInteger = (value, fallback, min, max) => {
   if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    return null;
+  }
 
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) return null;
+
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+
   return parsed;
 };
 
 const getEventSlots = (event) => {
-  if (!Array.isArray(event.slots) || event.slots.length !== 2) return null;
+  if (!Array.isArray(event.slots) || event.slots.length !== 2) {
+    return null;
+  }
 
   if (
     !event.slots.every(
@@ -69,73 +79,81 @@ const getEventSlots = (event) => {
     return null;
   }
 
-  const normalized = event.slots.map((slot) => ({
-    slot: slot.slot,
-    name: slot.name.trim(),
-    version: normalizeVersion(slot.version),
-    cmd: slot.cmd ?? null,
-    mtime: null
-  }));
+  const slots = event.slots
+    .map((slot) => ({
+      slot: slot.slot,
+      name: slot.name.trim(),
+      version: normalizeVersion(slot.version),
+      cmd: slot.cmd ?? null
+    }))
+    .sort((first, second) => first.slot - second.slot);
 
-  if (new Set(normalized.map((slot) => slot.slot)).size !== 2) return null;
-  return normalized.sort((a, b) => a.slot - b.slot);
+  return new Set(slots.map((slot) => slot.slot)).size === 2 ? slots : null;
 };
 
 const validRunStart = (event) =>
+  (event.status === undefined || event.status === 'live') &&
   validOptionalInteger(event.total_games, 0) &&
-  validOptionalSafeInteger(event.p1_nodes) &&
-  validOptionalSafeInteger(event.p2_nodes) &&
-  validOptionalSafeInteger(event.eval_nodes) &&
-  validBoardSize(event.board_size) &&
+  validOptionalInteger(event.p1_nodes, 0) &&
+  validOptionalInteger(event.p2_nodes, 0) &&
+  validOptionalInteger(event.eval_nodes, 0) &&
+  (event.board_size === undefined || validInteger(event.board_size, 5, 40)) &&
   validOptionalInteger(event.min_pairs, 0) &&
   validOptionalInteger(event.max_pairs, 0) &&
   validOptionalInteger(event.repeat_index, 0) &&
-  validOptionalSafeInteger(event.seed) &&
+  validOptionalInteger(event.seed, 0) &&
   (event.config_label === undefined || typeof event.config_label === 'string');
 
 const validRunUpdate = (event) =>
+  validOptionalStatus(event.status) &&
   validOptionalInteger(event.games_played, 0) &&
   validOptionalInteger(event.wins, 0) &&
   validOptionalInteger(event.losses, 0) &&
   validOptionalInteger(event.draws, 0) &&
   validOptionalInteger(event.wall_time_ms, 0) &&
   validOptionalFinite(event.p1_elo) &&
-  validOptionalFinite(event.p2_elo) &&
   validOptionalFinite(event.p1_erf) &&
-  validOptionalFinite(event.p2_erf) &&
   validOptionalInteger(event.p1_time, 0) &&
-  validOptionalInteger(event.p2_time, 0) &&
+  validOptionalInteger(event.p1_cpu_time, 0) &&
+  validOptionalInteger(event.p1_cpu_wall_time, 0) &&
   validOptionalInteger(event.p1_crashes, 0) &&
-  validOptionalInteger(event.p2_crashes, 0) &&
   validOptionalFinite(event.p1_cma) &&
-  validOptionalFinite(event.p2_cma) &&
   validOptionalFinite(event.p1_blunder) &&
+  validOptionalInteger(event.p1_moves_analyzed, 0) &&
+  validOptionalInteger(event.p1_critical_total, 0) &&
+  validOptionalFinite(event.p2_elo) &&
+  validOptionalFinite(event.p2_erf) &&
+  validOptionalInteger(event.p2_time, 0) &&
+  validOptionalInteger(event.p2_cpu_time, 0) &&
+  validOptionalInteger(event.p2_cpu_wall_time, 0) &&
+  validOptionalInteger(event.p2_crashes, 0) &&
+  validOptionalFinite(event.p2_cma) &&
   validOptionalFinite(event.p2_blunder) &&
-  validOptionalBoolean(event.is_done) &&
-  validOptionalBoolean(event.timed_out);
+  validOptionalInteger(event.p2_moves_analyzed, 0) &&
+  validOptionalInteger(event.p2_critical_total, 0);
 
 const buildRunRecord = (id, event) => ({
   id,
   config_label: event.config_label ?? 'live',
+  status: 'live',
   total_games: event.total_games ?? 0,
   p1_nodes: event.p1_nodes ?? 0,
   p2_nodes: event.p2_nodes ?? 0,
   eval_nodes: event.eval_nodes ?? 0,
-  board_size: normalizeBoardSize(event.board_size),
+  board_size: event.board_size ?? 20,
   min_pairs: event.min_pairs ?? 0,
   max_pairs: event.max_pairs ?? 0,
   repeat_index: event.repeat_index ?? 0,
   seed: event.seed ?? null
 });
 
-const getRunId = (event) =>
-  validString(event.run_id) ? normalizeString(event.run_id) : null;
+const getRunId = (event) => (validString(event.run_id) ? event.run_id.trim() : null);
 
-const getExternalId = (event) =>
-  validString(event.external_id) ? normalizeString(event.external_id) : null;
+const getExternalId = (event) => (validString(event.external_id) ? event.external_id.trim() : null);
 
 const getGameIds = (event) => {
   const externalId = getExternalId(event);
+
   return {
     runId: getRunId(event),
     externalId,
@@ -151,24 +169,27 @@ const validGameSlots = (blackSlot, whiteSlot) =>
 const validOpeningLength = (value, boardSize) =>
   value === undefined || validInteger(value, 0, boardSize * boardSize);
 
-const normalizeOpeningLength = (value) => (value === undefined ? 0 : value);
-
 const validMoveEvent = (event, boardSize) =>
   validInteger(event.x, 0, boardSize - 1) &&
   validInteger(event.y, 0, boardSize - 1) &&
   validInteger(event.c, 1, 2);
 
 const parseMovesText = (moves, boardSize) => {
-  if (moves == null || moves === '') return [];
-  if (typeof moves !== 'string') return null;
+  if (moves === '') return [];
+  if (typeof moves !== 'string') {
+    return null;
+  }
 
   const occupied = new Set();
   const parsed = [];
 
   for (const [index, move] of moves.split(';').entries()) {
-    if (!/^\d+,\d+,[12]$/.test(move)) return null;
+    if (!/^\d+,\d+,[12]$/.test(move)) {
+      return null;
+    }
 
     const [x, y, color] = move.split(',').map(Number);
+
     const key = `${x},${y}`;
 
     if (
@@ -183,19 +204,21 @@ const parseMovesText = (moves, boardSize) => {
     }
 
     occupied.add(key);
-    parsed.push({ x, y, c: color });
+    parsed.push({
+      x,
+      y,
+      c: color
+    });
   }
 
   return parsed;
 };
 
-const validResultMoves = (moves, boardSize) =>
-  typeof moves === 'string' && parseMovesText(moves, boardSize) !== null;
-
 const hasOccupiedMove = (moves, x, y) =>
   moves
     ? moves.split(';').some((move) => {
         const [moveX, moveY] = move.split(',').map(Number);
+
         return moveX === x && moveY === y;
       })
     : false;
@@ -209,36 +232,41 @@ const movesHavePrefix = (currentMoves, nextMoves) => {
 
   const current = currentMoves.split(';');
   const next = nextMoves.split(';');
+
   return current.length <= next.length && current.every((move, index) => move === next[index]);
 };
 
-const validResultWinner = (winner) => validInteger(winner, 1, 4);
-
 const resultMatchesFinalMove = (winner, moves, boardSize) => {
   if (winner === 4) return true;
-  if (moves === '') return winner !== 3;
+  if (moves === '') {
+    return winner !== 3;
+  }
 
   const parsed = parseMovesText(moves, boardSize);
-  if (!parsed || parsed.length === 0) return false;
-  if (winner === 3) return parsed.length === boardSize * boardSize;
+
+  if (!parsed || parsed.length === 0) {
+    return false;
+  }
+
+  if (winner === 3) {
+    return parsed.length === boardSize * boardSize;
+  }
+
   return parsed[parsed.length - 1].c === winner;
 };
 
-const validDuration = (duration) =>
-  duration == null || validInteger(duration, 0, Number.MAX_SAFE_INTEGER);
-
-const MATCHUP_SORTS = new Set(['id', 'moves', 'status', 'time', 'duration']);
-const ORDERS = new Set(['asc', 'desc']);
-
 const getGamesOrder = (sort, order) => {
   const ascending = order === 'asc';
+
   const direction = ascending ? 'ASC' : 'DESC';
 
   if (sort === 'moves') {
     return ascending ? 'min_moves ASC, max_id DESC' : 'max_moves DESC, max_id DESC';
   }
 
-  if (sort === 'time') return `latest_ts ${direction}, max_id DESC`;
+  if (sort === 'time') {
+    return `latest_ts ${direction}, max_id DESC`;
+  }
 
   if (sort === 'status') {
     return ascending
@@ -253,11 +281,120 @@ const getGamesOrder = (sort, order) => {
   return `max_id ${direction}`;
 };
 
+const parseGamesCursor = (value, sort) => {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  let cursor;
+
+  try {
+    cursor = JSON.parse(value);
+  } catch {
+    return false;
+  }
+
+  if (!isPlainObject(cursor) || !validInteger(cursor.id, 1)) {
+    return false;
+  }
+
+  if (sort === 'id') {
+    return {
+      id: cursor.id
+    };
+  }
+
+  if (sort === 'time') {
+    if (!validString(cursor.value)) {
+      return false;
+    }
+
+    return {
+      id: cursor.id,
+      value: cursor.value
+    };
+  }
+
+  if (!validInteger(cursor.value, 0)) {
+    return false;
+  }
+
+  if (sort === 'status') {
+    if (!validInteger(cursor.secondary, 0)) {
+      return false;
+    }
+
+    return {
+      id: cursor.id,
+      value: cursor.value,
+      secondary: cursor.secondary
+    };
+  }
+
+  return {
+    id: cursor.id,
+    value: cursor.value
+  };
+};
+
+const getGamesCursorClause = (sort, order, cursor) => {
+  if (!cursor) return '';
+
+  if (sort === 'id') {
+    return order === 'asc' ? 'WHERE max_id > @cursorId' : 'WHERE max_id < @cursorId';
+  }
+
+  const comparison = order === 'asc' ? '>' : '<';
+
+  if (sort === 'status') {
+    return `
+      WHERE (
+        live_count ${comparison} @cursorValue
+        OR (
+          live_count = @cursorValue
+          AND hero_wins ${comparison} @cursorSecondary
+        )
+        OR (
+          live_count = @cursorValue
+          AND hero_wins = @cursorSecondary
+          AND max_id < @cursorId
+        )
+      )
+    `;
+  }
+
+  const field =
+    sort === 'moves'
+      ? order === 'asc'
+        ? 'min_moves'
+        : 'max_moves'
+      : sort === 'time'
+        ? 'latest_ts'
+        : 'duration';
+
+  return `
+    WHERE (
+      ${field} ${comparison} @cursorValue
+      OR (
+        ${field} = @cursorValue
+        AND max_id < @cursorId
+      )
+    )
+  `;
+};
+
 const createRoutes = (apiKey) => {
   const router = express.Router();
 
   const auth = (req, res, next) => {
-    if (req.headers['x-api-key'] !== apiKey) return res.sendStatus(403);
+    if (req.headers['x-api-key'] !== apiKey) {
+      return res.sendStatus(403);
+    }
+
     next();
   };
 
@@ -265,110 +402,145 @@ const createRoutes = (apiKey) => {
 
   router.get('/latest-game', (req, res) => {
     const row = repo.getLatestGame();
-    res.json({ id: row?.id ?? null });
+
+    res.json({
+      id: row?.id ?? null
+    });
   });
 
   router.post('/batch', auth, (req, res) => {
     const events = req.body;
-    if (!Array.isArray(events)) return res.sendStatus(400);
+
+    if (!Array.isArray(events)) {
+      return res.sendStatus(400);
+    }
 
     const broadcasts = [];
-    const pendingGameStarts = [];
     const batchState = new Map();
 
     const getGameState = (externalId) => {
-      if (batchState.has(externalId)) return batchState.get(externalId);
+      if (batchState.has(externalId)) {
+        return batchState.get(externalId);
+      }
 
       const game = repo.getGameByExt(externalId);
+
       if (!game) return null;
 
-      const state = { ...game, modified: false };
+      const state = {
+        ...game,
+        modified: false
+      };
+
       batchState.set(externalId, state);
+
       return state;
     };
 
     const transaction = db.transaction(() => {
       for (const event of events) {
-        if (!isPlainObject(event) || typeof event.type !== 'string') continue;
+        if (!isPlainObject(event) || typeof event.type !== 'string') {
+          continue;
+        }
 
         const externalId = getExternalId(event);
-        if (
-          (event.type === 'start' || event.type === 'move' || event.type === 'result') &&
-          !externalId
-        ) {
+
+        if (['start', 'move', 'result'].includes(event.type) && !externalId) {
           continue;
         }
 
         if (event.type === 'run_start') {
           const runId = getRunId(event);
+
           const slots = getEventSlots(event);
 
-          if (!runId || !slots || !validRunStart(event)) continue;
+          if (!runId || !slots || !validRunStart(event)) {
+            continue;
+          }
 
           if (!repo.getRunById(runId)) {
             repo.insertRun(buildRunRecord(runId, event));
           }
 
           for (const slot of slots) {
-            repo.insertRunSlot({ run_id: runId, ...slot });
+            repo.insertRunSlot({
+              run_id: runId,
+              ...slot
+            });
           }
 
           broadcasts.push({
             type: 'run_start',
             run: repo.getRunById(runId)
           });
+
           continue;
         }
 
         if (event.type === 'run_update') {
           const runId = getRunId(event);
+
           const existing = runId ? repo.getRunById(runId) : null;
 
-          if (!existing || !validRunUpdate(event)) continue;
+          if (!existing || !validRunUpdate(event)) {
+            continue;
+          }
 
           repo.updateRun({
             id: runId,
-            games_played: integerOr(event.games_played, existing.games_played ?? 0),
-            wins: integerOr(event.wins, existing.wins ?? 0),
-            losses: integerOr(event.losses, existing.losses ?? 0),
-            draws: integerOr(event.draws, existing.draws ?? 0),
-            wall_time_ms: integerOr(event.wall_time_ms, existing.wall_time_ms ?? 0),
-            p1_elo: finiteOr(event.p1_elo, existing.p1_elo ?? 1000),
-            p1_erf: finiteOr(event.p1_erf, existing.p1_erf ?? 0),
-            p1_time: integerOr(event.p1_time, existing.p1_total_time_ms ?? 0),
-            p1_crashes: integerOr(event.p1_crashes, existing.p1_crashes ?? 0),
-            p1_cma: finiteOr(event.p1_cma, existing.p1_cma ?? 0),
-            p1_blunder: finiteOr(event.p1_blunder, existing.p1_blunder ?? 0),
-            p2_elo: finiteOr(event.p2_elo, existing.p2_elo ?? 1000),
-            p2_erf: finiteOr(event.p2_erf, existing.p2_erf ?? 0),
-            p2_time: integerOr(event.p2_time, existing.p2_total_time_ms ?? 0),
-            p2_crashes: integerOr(event.p2_crashes, existing.p2_crashes ?? 0),
-            p2_cma: finiteOr(event.p2_cma, existing.p2_cma ?? 0),
-            p2_blunder: finiteOr(event.p2_blunder, existing.p2_blunder ?? 0),
-            is_done:
-              existing.is_done || booleanFlagOr(event.is_done, existing.is_done) ? 1 : 0,
-            timed_out:
-              existing.timed_out || booleanFlagOr(event.timed_out, existing.timed_out) ? 1 : 0
+            status: nextStatus(existing.status, event.status),
+            games_played: integerOr(event.games_played, existing.games_played),
+            wins: integerOr(event.wins, existing.wins),
+            losses: integerOr(event.losses, existing.losses),
+            draws: integerOr(event.draws, existing.draws),
+            wall_time_ms: integerOr(event.wall_time_ms, existing.wall_time_ms),
+            p1_elo: finiteOr(event.p1_elo, existing.p1_elo),
+            p1_erf: finiteOr(event.p1_erf, existing.p1_erf),
+            p1_time: integerOr(event.p1_time, existing.p1_total_time_ms),
+            p1_cpu_time: integerOr(event.p1_cpu_time, existing.p1_cpu_time_ms),
+            p1_cpu_wall_time: integerOr(event.p1_cpu_wall_time, existing.p1_cpu_wall_time_ms),
+            p1_crashes: integerOr(event.p1_crashes, existing.p1_crashes),
+            p1_cma: finiteOr(event.p1_cma, existing.p1_cma),
+            p1_blunder: finiteOr(event.p1_blunder, existing.p1_blunder),
+            p1_moves_analyzed: integerOr(event.p1_moves_analyzed, existing.p1_moves_analyzed),
+            p1_critical_total: integerOr(event.p1_critical_total, existing.p1_critical_total),
+            p2_elo: finiteOr(event.p2_elo, existing.p2_elo),
+            p2_erf: finiteOr(event.p2_erf, existing.p2_erf),
+            p2_time: integerOr(event.p2_time, existing.p2_total_time_ms),
+            p2_cpu_time: integerOr(event.p2_cpu_time, existing.p2_cpu_time_ms),
+            p2_cpu_wall_time: integerOr(event.p2_cpu_wall_time, existing.p2_cpu_wall_time_ms),
+            p2_crashes: integerOr(event.p2_crashes, existing.p2_crashes),
+            p2_cma: finiteOr(event.p2_cma, existing.p2_cma),
+            p2_blunder: finiteOr(event.p2_blunder, existing.p2_blunder),
+            p2_moves_analyzed: integerOr(event.p2_moves_analyzed, existing.p2_moves_analyzed),
+            p2_critical_total: integerOr(event.p2_critical_total, existing.p2_critical_total)
           });
 
           broadcasts.push({
             type: 'run_update',
             run: repo.getRunById(runId)
           });
+
           continue;
         }
 
         if (event.type === 'start') {
           const { runId, groupId } = getGameIds(event);
+
           const run = runId ? repo.getRunById(runId) : null;
 
           if (!run) continue;
 
           const existing = repo.getGameByExt(externalId);
+
           if (existing) {
             if (!batchState.has(externalId)) {
-              batchState.set(externalId, { ...existing, modified: false });
+              batchState.set(externalId, {
+                ...existing,
+                modified: false
+              });
             }
+
             continue;
           }
 
@@ -385,19 +557,29 @@ const createRoutes = (apiKey) => {
             run_id: runId,
             black_slot: event.black_slot,
             white_slot: event.white_slot,
-            opening_len: normalizeOpeningLength(event.op_len)
+            opening_len: event.op_len ?? 0
           });
 
           const game = repo.getGameDetails(info.lastInsertRowid);
+
           if (!game) continue;
 
-          batchState.set(externalId, { ...game, modified: false });
-          pendingGameStarts.push(info.lastInsertRowid);
+          batchState.set(externalId, {
+            ...game,
+            modified: false
+          });
+
+          broadcasts.push({
+            type: 'game_start',
+            game
+          });
+
           continue;
         }
 
         if (event.type === 'move') {
           const runId = getRunId(event);
+
           const state = getGameState(externalId);
 
           if (
@@ -410,9 +592,10 @@ const createRoutes = (apiKey) => {
           }
 
           const run = repo.getRunById(state.run_id);
-          if (!run || !validMoveEvent(event, run.board_size)) continue;
 
           if (
+            !run ||
+            !validMoveEvent(event, run.board_size) ||
             hasOccupiedMove(state.moves, event.x, event.y) ||
             event.c !== expectedMoveColor(state.moves)
           ) {
@@ -420,9 +603,11 @@ const createRoutes = (apiKey) => {
           }
 
           const move = `${event.x},${event.y},${event.c}`;
+
           const moveCount = state.moves ? state.moves.split(';').length : 0;
 
           state.moves = state.moves ? `${state.moves};${move}` : move;
+
           state.modified = true;
 
           broadcasts.push({
@@ -433,23 +618,28 @@ const createRoutes = (apiKey) => {
             moves: state.moves,
             move_count: moveCount + 1
           });
+
           continue;
         }
 
         if (event.type === 'result') {
           const runId = getRunId(event);
+
           const state = getGameState(externalId);
 
-          if (!state || !runId || String(state.run_id) !== String(runId)) continue;
+          if (!state || !runId || String(state.run_id) !== String(runId)) {
+            continue;
+          }
 
           const run = repo.getRunById(state.run_id);
 
           if (
             !run ||
             state.winner_color !== 0 ||
-            !validResultWinner(event.winner) ||
-            !validDuration(event.duration) ||
-            !validResultMoves(event.moves, run.board_size) ||
+            !validInteger(event.winner, 1, 4) ||
+            !validOptionalInteger(event.duration, 0) ||
+            typeof event.moves !== 'string' ||
+            parseMovesText(event.moves, run.board_size) === null ||
             !movesHavePrefix(state.moves, event.moves) ||
             !resultMatchesFinalMove(event.winner, event.moves, run.board_size)
           ) {
@@ -459,9 +649,16 @@ const createRoutes = (apiKey) => {
           state.winner_color = event.winner;
 
           const currentCount = state.moves ? state.moves.split(';').length : 0;
+
           const nextCount = event.moves ? event.moves.split(';').length : 0;
-          if (nextCount >= currentCount) state.moves = event.moves;
-          if (event.duration != null) state.duration = event.duration;
+
+          if (nextCount >= currentCount) {
+            state.moves = event.moves;
+          }
+
+          if (event.duration != null) {
+            state.duration = event.duration;
+          }
 
           state.modified = true;
 
@@ -482,7 +679,9 @@ const createRoutes = (apiKey) => {
       }
 
       for (const state of batchState.values()) {
-        if (!state.modified) continue;
+        if (!state.modified) {
+          continue;
+        }
 
         repo.updateGameFull({
           moves: state.moves,
@@ -491,22 +690,29 @@ const createRoutes = (apiKey) => {
           id: state.id
         });
       }
-
-      for (const id of pendingGameStarts) {
-        const game = repo.getGameDetails(id);
-        if (game) broadcasts.push({ type: 'game_start', game });
-      }
     });
 
     transaction();
-    broadcasts.forEach((message) => sse.broadcast(message));
-    res.json({ success: true });
+
+    for (const message of broadcasts) {
+      sse.broadcast(message);
+    }
+
+    res.json({
+      success: true
+    });
   });
 
   router.delete('/reset', auth, (req, res) => {
     db.getDb().exec('DELETE FROM games; DELETE FROM runs;');
-    sse.reset();
-    res.json({ success: true });
+
+    const resetEvent = sse.reset();
+
+    res.setHeader('X-Arena-Generation', resetEvent.generation);
+
+    res.json({
+      success: true
+    });
   });
 
   router.get('/runs', (req, res) => {
@@ -515,68 +721,112 @@ const createRoutes = (apiKey) => {
 
   router.get('/matchups', (req, res) => {
     const limit = parseQueryInteger(req.query.limit, 20, 1, 100);
+
     const offset = parseQueryInteger(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
 
     if (limit === null || offset === null) {
-      return res.status(400).json({ error: 'invalid pagination' });
+      return res.status(400).json({
+        error: 'invalid pagination'
+      });
     }
 
-    const result = repo.getRunsForMatchups(limit, offset).map((run) => ({
-      runId: run.runId,
-      hero: {
-        id: `${run.runId}:1`,
-        slot: 1,
-        name: run.slot1_name,
-        version: run.slot1_version,
-        cmd: run.slot1_cmd
-      },
-      villain: {
-        id: `${run.runId}:2`,
-        slot: 2,
-        name: run.slot2_name,
-        version: run.slot2_version,
-        cmd: run.slot2_cmd
-      },
-      heroWins: run.wins,
-      villainWins: run.losses,
-      draws: run.draws,
-      total: run.games_played,
-      lastActivity: run.updated_at,
-      live_count: run.live_count
-    }));
+    const result = repo.getRunsForMatchups(limit, offset).map((row) => {
+      const {
+        runId,
+        slot1_name: slot1Name,
+        slot1_version: slot1Version,
+        slot1_cmd: slot1Cmd,
+        slot2_name: slot2Name,
+        slot2_version: slot2Version,
+        slot2_cmd: slot2Cmd,
+        live_count: liveCount,
+        ...run
+      } = row;
+
+      return {
+        runId,
+        status: run.status,
+        hero: {
+          id: `${runId}:1`,
+          slot: 1,
+          name: slot1Name,
+          version: slot1Version,
+          cmd: slot1Cmd
+        },
+        villain: {
+          id: `${runId}:2`,
+          slot: 2,
+          name: slot2Name,
+          version: slot2Version,
+          cmd: slot2Cmd
+        },
+        heroWins: run.wins,
+        villainWins: run.losses,
+        draws: run.draws,
+        total: run.games_played,
+        lastActivity: run.updated_at,
+        live_count: liveCount,
+        run: {
+          ...run,
+          id: runId,
+          slot1_name: slot1Name,
+          slot1_version: slot1Version,
+          slot1_cmd: slot1Cmd,
+          slot2_name: slot2Name,
+          slot2_version: slot2Version,
+          slot2_cmd: slot2Cmd
+        }
+      };
+    });
 
     res.json(result);
   });
 
   router.get('/games', (req, res) => {
-    const { run_id: runId, hero_slot: heroSlotText } = req.query;
+    const { run_id: runId, hero_slot: heroSlot } = req.query;
 
-    if (!validString(runId) || (heroSlotText !== '1' && heroSlotText !== '2')) {
-      return res.status(400).json({ error: 'run_id and hero_slot are required' });
+    if (!validString(runId) || (heroSlot !== '1' && heroSlot !== '2')) {
+      return res.status(400).json({
+        error: 'run_id and hero_slot are required'
+      });
     }
 
     const limit = parseQueryInteger(req.query.limit, 50, 1, 100);
+
     const offset = parseQueryInteger(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+
     const sort = req.query.sort ?? 'id';
+
     const order = req.query.order ?? 'desc';
+
+    const cursor =
+      typeof sort === 'string' && MATCHUP_SORTS.has(sort)
+        ? parseGamesCursor(req.query.cursor, sort)
+        : false;
 
     if (
       limit === null ||
       offset === null ||
+      cursor === false ||
+      (cursor && offset !== 0) ||
       typeof sort !== 'string' ||
       !MATCHUP_SORTS.has(sort) ||
       typeof order !== 'string' ||
       !ORDERS.has(order)
     ) {
-      return res.status(400).json({ error: 'invalid games query' });
+      return res.status(400).json({
+        error: 'invalid games query'
+      });
     }
 
     try {
       const rows = repo.getGamesDynamic({
         runId: runId.trim(),
-        heroSlot: Number(heroSlotText),
+        heroSlot: Number(heroSlot),
         limit,
         offset,
+        cursor,
+        cursorClause: getGamesCursorClause(sort, order, cursor),
         orderBy: getGamesOrder(sort, order)
       });
 
@@ -588,16 +838,44 @@ const createRoutes = (apiKey) => {
       );
     } catch (error) {
       console.error('Games query failed:', error.message);
-      res.status(500).json({ error: 'failed to query games' });
+
+      res.status(500).json({
+        error: 'failed to query games'
+      });
     }
   });
 
   router.get('/game/:id', (req, res) => {
+    const requestedGeneration = req.query.g;
+
+    if (requestedGeneration !== undefined) {
+      if (typeof requestedGeneration !== 'string' || requestedGeneration.length === 0) {
+        return res.status(400).json({
+          error: 'invalid viewer generation'
+        });
+      }
+
+      if (requestedGeneration !== db.getGeneration()) {
+        return res.status(409).json({
+          error: 'stale viewer generation'
+        });
+      }
+    }
+
     const id = parseQueryInteger(req.params.id, null, 1, Number.MAX_SAFE_INTEGER);
-    if (id === null) return res.status(400).json({ error: 'invalid game id' });
+
+    if (id === null) {
+      return res.status(400).json({
+        error: 'invalid game id'
+      });
+    }
 
     const game = repo.getGameDetails(id);
-    if (!game) return res.sendStatus(404);
+
+    if (!game) {
+      return res.sendStatus(404);
+    }
+
     res.json(game);
   });
 
