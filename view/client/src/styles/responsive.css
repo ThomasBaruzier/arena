@@ -1,0 +1,155 @@
+@media (max-width: 1000px) {
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.58);
+    border: 0;
+    display: block;
+    z-index: 50;
+    backdrop-filter: blur(2px);
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(var(--sidebar-width), calc(100vw - 24px));
+    margin-left: 0;
+    transform: translateX(-100%);
+    box-shadow: 18px 0 46px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .close-sidebar {
+    display: grid;
+  }
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    padding: 0 8px;
+  }
+
+  .menu-toggle {
+    left: 8px;
+  }
+
+  .match-bar {
+    padding: 0 40px;
+    gap: 10px;
+  }
+
+  .match-bar .p-ver {
+    display: none;
+  }
+
+  .match-bar .p-name {
+    font-size: 0.88rem;
+  }
+
+  .match-bar .p-color {
+    width: 17px;
+    height: 17px;
+  }
+
+  .score-center {
+    min-width: 58px;
+  }
+
+  .live-tag {
+    min-width: 50px;
+    height: 22px;
+    padding: 0 7px;
+    font-size: 0.62rem;
+  }
+
+  .final-score {
+    font-size: 0.92rem;
+  }
+
+  .board-wrapper {
+    width: min(calc(100% - 20px), 76vh);
+  }
+
+  .control-deck {
+    bottom: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .match-bar {
+    padding: 0 40px;
+    gap: 5px;
+  }
+
+  .player-left,
+  .player-right {
+    gap: 4px;
+  }
+
+  .match-bar .p-name {
+    font-size: 0.82rem;
+  }
+
+  .match-bar .p-color {
+    width: 15px;
+    height: 15px;
+  }
+
+  .score-center {
+    min-width: 48px;
+  }
+
+  .live-tag {
+    min-width: 44px;
+    font-size: 0.6rem;
+  }
+
+  .final-score {
+    font-size: 0.84rem;
+  }
+
+  .control-deck {
+    width: calc(100% - 28px);
+    min-height: 52px;
+    padding: 6px 12px;
+    border-radius: 16px;
+    justify-content: space-between;
+  }
+
+  .deck-info {
+    display: none;
+  }
+
+  .deck-group {
+    gap: 3px;
+  }
+
+  .deck-sep {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) and (min-width: 701px) {
+  .board-wrapper {
+    width: min(calc(100% - 30px), calc(100dvh - var(--topbar-height) - 96px));
+    margin-bottom: 64px;
+  }
+
+  .control-deck {
+    bottom: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

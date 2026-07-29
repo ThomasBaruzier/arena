@@ -13,6 +13,8 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    colorScheme: 'dark',
+    reducedMotion: 'reduce',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure'
   },
@@ -25,8 +27,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command:
-      'npm run build && PORT=4173 API_URL=http://127.0.0.1:3001 npm start',
+    command: 'npm run build && PORT=4173 API_URL=http://127.0.0.1:3001 npm start',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 30000

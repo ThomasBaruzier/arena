@@ -1,0 +1,234 @@
+.app {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  background: var(--bg);
+}
+
+.loading-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text-dim);
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  height: 100%;
+  margin-left: calc(var(--sidebar-width) * -1);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 60;
+  transition:
+    margin-left 220ms ease,
+    transform 220ms ease;
+}
+
+.sidebar.open {
+  margin-left: 0;
+}
+
+.sidebar-header {
+  height: var(--topbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-strong);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.accent,
+.logo svg {
+  color: var(--accent);
+}
+
+.close-sidebar,
+.menu-toggle {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.close-sidebar {
+  display: none;
+}
+
+.close-sidebar:hover,
+.menu-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.main {
+  min-width: 0;
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: var(--topbar-height);
+  position: relative;
+  padding: 0 16px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 40;
+}
+
+.menu-toggle {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+}
+
+.placeholder-text {
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.match-bar {
+  width: min(100%, 820px);
+  padding: 0 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.player-left,
+.player-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.player-left {
+  justify-content: flex-end;
+}
+
+.player-right {
+  justify-content: flex-start;
+}
+
+.match-bar .p-color {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #333;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+}
+
+.match-bar .p-color.black {
+  background: radial-gradient(circle at 30% 30%, #505050, #030303 72%);
+}
+
+.match-bar .p-color.white {
+  background: radial-gradient(circle at 30% 30%, #fff, #d9d9d9 72%);
+}
+
+.match-bar .p-ver {
+  color: var(--text-dim);
+  font-family:
+    'SFMono-Regular',
+    Consolas,
+    monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.match-bar .p-name {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-bar .p-name.gold {
+  color: var(--accent);
+}
+
+.score-center {
+  min-width: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-tag,
+.final-score {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.live-tag {
+  min-width: 56px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid rgba(234, 179, 8, 0.48);
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.final-score {
+  color: var(--text-strong);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.final-score.void {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}

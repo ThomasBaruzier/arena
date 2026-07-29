@@ -12,11 +12,7 @@ export const parseMoves = (value) => {
     });
 };
 
-export const getWinningLine = (
-  moves,
-  winnerColor,
-  boardSize = DEFAULT_BOARD_SIZE
-) => {
+export const getWinningLine = (moves, winnerColor, boardSize = DEFAULT_BOARD_SIZE) => {
   if (!moves.length || !winnerColor || winnerColor === 3 || winnerColor === 4) {
     return [];
   }

@@ -1,43 +1,50 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Loader } from 'lucide-react';
-import { getEventRunId, sameSlotPair } from '../utils';
+import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Loader } from 'lucide-react';
+import TournamentStats from './TournamentStats';
+import { getEventRunId, getRunId, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
 
 const SORT_COLUMNS = [
-  ['id', 'ID'],
-  ['moves', 'Mvs'],
-  ['status', 'Res'],
-  ['time', 'Time']
+  {
+    column: 'id',
+    label: 'ID',
+    name: 'game ID'
+  },
+  {
+    column: 'moves',
+    label: 'Mvs',
+    name: 'move count'
+  },
+  {
+    column: 'status',
+    label: 'Res',
+    name: 'result'
+  },
+  {
+    column: 'time',
+    label: 'Time',
+    name: 'time'
+  }
 ];
 
-const formatFloat = (value) => {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return '—';
-  if (number >= 100) return number.toFixed(0);
-  if (number >= 10) return number.toFixed(1);
-  return number.toFixed(2);
-};
-
-const statSide = (slot) => (slot === 1 ? 'p1' : 'p2');
+const validPairs = (value) =>
+  Array.isArray(value) &&
+  value.every((pair) => pair && typeof pair === 'object' && Array.isArray(pair.games));
 
 const sortGames = (games, { col, asc }) => {
-  if (col !== 'id') return [...games].sort((first, second) => first.id - second.id);
-  return [...games].sort((first, second) =>
-    asc ? first.id - second.id : second.id - first.id
-  );
+  if (col !== 'id') {
+    return [...games].sort((first, second) => first.id - second.id);
+  }
+
+  return [...games].sort((first, second) => (asc ? first.id - second.id : second.id - first.id));
 };
 
 const getMoveCount = (game) =>
   game.move_count ?? (game.moves ? game.moves.split(';').filter(Boolean).length : 0);
 
 const isPlayerWin = (game, slot) => {
-  if (
-    !slot ||
-    game.winner_color === 0 ||
-    game.winner_color === 3 ||
-    game.winner_color === 4
-  ) {
+  if (!slot || game.winner_color === 0 || game.winner_color === 3 || game.winner_color === 4) {
     return false;
   }
 
@@ -46,6 +53,29 @@ const isPlayerWin = (game, slot) => {
     (game.winner_color === 2 && game.white_slot === slot)
   );
 };
+
+const resultLabel = (game, slot) => {
+  if (game.winner_color === 0) {
+    return 'live';
+  }
+
+  if (game.winner_color === 3) {
+    return 'draw';
+  }
+
+  if (game.winner_color === 4) {
+    return 'void';
+  }
+
+  return isPlayerWin(game, slot) ? 'S1 win' : 'S1 loss';
+};
+
+const gameTime = (timestamp) =>
+  new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 
 const sameGame = (first, second) =>
   first.id === second.id ||
@@ -97,11 +127,53 @@ const sortPairs = (pairs, { col, asc }) => {
       secondValue = second.max_id;
     }
 
-    if (firstValue < secondValue) return -direction;
-    if (firstValue > secondValue) return direction;
+    if (firstValue < secondValue) {
+      return -direction;
+    }
+
+    if (firstValue > secondValue) {
+      return direction;
+    }
+
     return second.max_id - first.max_id;
   });
 };
+
+export const gamesCursor = (pair, sort) => {
+  if (!pair || !Number.isSafeInteger(Number(pair.max_id)) || Number(pair.max_id) < 1) {
+    return null;
+  }
+
+  const cursor = {
+    id: Number(pair.max_id)
+  };
+
+  if (sort.col === 'moves') {
+    cursor.value = Number(sort.asc ? pair.min_moves : pair.max_moves);
+  } else if (sort.col === 'time') {
+    cursor.value = pair.latest_ts;
+  } else if (sort.col === 'status') {
+    cursor.value = Number(pair.live_count || 0);
+    cursor.secondary = Number(pair.hero_wins || 0);
+  } else if (sort.col === 'duration') {
+    cursor.value = Number(pair.duration || 0);
+  }
+
+  if (
+    Object.values(cursor).some(
+      (value) => value == null || (typeof value === 'number' && !Number.isFinite(value))
+    )
+  ) {
+    return null;
+  }
+
+  return JSON.stringify(cursor);
+};
+
+export const liveEventInvalidatesCursor = (type, column) =>
+  type === 'game_start' ||
+  column === 'moves' ||
+  (type === 'game_result' && (column === 'status' || column === 'duration'));
 
 export const pairsReducer = (state, action) => {
   let next;
@@ -110,6 +182,7 @@ export const pairsReducer = (state, action) => {
     case 'SET':
       next = action.data;
       break;
+
     case 'APPEND': {
       const byGroup = new Map(state.map((pair) => [pair.group_id, pair]));
 
@@ -122,7 +195,10 @@ export const pairsReducer = (state, action) => {
         }
 
         const games = new Map(existing.games.map((game) => [game.id, game]));
-        for (const game of incoming.games) games.set(game.id, game);
+
+        for (const game of incoming.games) {
+          games.set(game.id, game);
+        }
 
         byGroup.set(incoming.group_id, {
           ...incoming,
@@ -133,8 +209,10 @@ export const pairsReducer = (state, action) => {
       next = [...byGroup.values()];
       break;
     }
+
     case 'CLEAR':
       return [];
+
     case 'game_start': {
       const game = {
         ...action.game,
@@ -179,13 +257,15 @@ export const pairsReducer = (state, action) => {
           ...withoutGame
         ];
       }
+
       break;
     }
+
     case 'game_update': {
       const event = action.event;
-      const sourcePair = state.find((pair) =>
-        pair.games.some((game) => sameGame(game, event))
-      );
+
+      const sourcePair = state.find((pair) => pair.games.some((game) => sameGame(game, event)));
+
       const sourceGame = sourcePair?.games.find((game) => sameGame(game, event));
 
       const updated = sourceGame
@@ -204,7 +284,13 @@ export const pairsReducer = (state, action) => {
 
       for (const pair of state) {
         const games = pair.games.filter((game) => !sameGame(game, event));
-        if (games.length) byGroup.set(pair.group_id, { ...pair, games });
+
+        if (games.length) {
+          byGroup.set(pair.group_id, {
+            ...pair,
+            games
+          });
+        }
       }
 
       if (updated) {
@@ -234,6 +320,7 @@ export const pairsReducer = (state, action) => {
       next = [...byGroup.values()];
       break;
     }
+
     default:
       return state;
   }
@@ -241,46 +328,26 @@ export const pairsReducer = (state, action) => {
   return action.sort && next ? sortPairs(next, action.sort) : next;
 };
 
-const PlayerRow = ({ player, run, wins, leading }) => {
-  const side = statSide(player.slot);
-  const crashes = Number(run?.[`${side}_crashes`] || 0);
+const Identity = ({ player, leading }) => (
+  <div className="player-identity" data-testid={`player-row-${player.slot}`}>
+    <span className={`p-name-text ${leading ? 'gold-text' : ''}`}>{player.name}</span>
+    <span className="ver-tag">{player.version}</span>
+  </div>
+);
 
-  return (
-    <div className="player-row" data-testid={`player-row-${player.slot}`}>
-      <div className="player-identity">
-        <span className={`p-name-text ${leading ? 'gold-text' : ''}`}>{player.name}</span>
-        <span className="ver-tag">{player.version}</span>
-        <span className="player-wins">{wins}W</span>
-      </div>
-      {run && (
-        <div className="player-metrics">
-          <span>
-            <small>Elo</small>
-            {formatFloat(run[`${side}_elo`])}
-          </span>
-          <span>
-            <small>ERF</small>
-            {formatFloat(run[`${side}_erf`])}
-          </span>
-          <span>
-            <small>CMA</small>
-            {formatFloat(run[`${side}_cma`])}%
-          </span>
-          <span>
-            <small>Bln</small>
-            {formatFloat(run[`${side}_blunder`])}%
-          </span>
-          {crashes > 0 && (
-            <span className="crash">
-              <small>Crash</small>
-              {crashes}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+const Record = ({ wins, losses, draws }) => (
+  <div className="tournament-record" aria-label={`${wins} wins, ${losses} losses, ${draws} draws`}>
+    <span>
+      <b>W</b> {wins}
+    </span>
+    <span>
+      <b>L</b> {losses}
+    </span>
+    <span>
+      <b>D</b> {draws}
+    </span>
+  </div>
+);
 
 export default function MatchGroup({
   group,
@@ -289,55 +356,107 @@ export default function MatchGroup({
   onSelectGame,
   subscribe,
   open,
-  onToggle,
-  onLoaded
+  onToggle
 }) {
   const [pairs, dispatch] = useReducer(pairsReducer, []);
-  const [sort, setSort] = useState({ col: 'id', asc: false });
+  const [sort, setSort] = useState({
+    col: 'id',
+    asc: false
+  });
   const [hasMore, setHasMore] = useState(true);
+  const [cursor, setCursor] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const abortRef = useRef(null);
+  const liveRefreshRef = useRef(null);
   const sentinelRef = useRef(null);
+  const detailsId = useId();
 
-  const progress =
-    run && run.total_games > 0 ? (run.games_played / run.total_games) * 100 : 0;
-  const finished =
-    Boolean(run?.is_done) ||
-    (run && run.total_games > 0 && run.games_played >= run.total_games);
+  const runId = getRunId(group);
+
+  const effectiveRun =
+    run || group.run
+      ? {
+          ...(group.run || {}),
+          ...(run || {})
+        }
+      : null;
+
+  const status = effectiveRun?.status ?? group.status ?? 'live';
+
+  const gamesPlayed = effectiveRun?.games_played ?? group.total ?? 0;
+
+  const totalGames = effectiveRun?.total_games ?? 0;
+
+  const progress = totalGames > 0 ? Math.min(100, (gamesPlayed / totalGames) * 100) : 0;
 
   const fetchGames = useCallback(
-    (sortConfig, offset = 0, append = false) => {
+    (sortConfig, nextCursor = null, append = false, commitSort = false) => {
       abortRef.current?.abort();
-      abortRef.current = new AbortController();
+
+      const controller = new AbortController();
+
+      abortRef.current = controller;
+      setFetching(true);
+      setLoadError(null);
 
       const params = new URLSearchParams({
-        run_id: group.runId,
+        run_id: runId,
         hero_slot: String(group.hero.slot),
         sort: sortConfig.col,
         order: sortConfig.asc ? 'asc' : 'desc',
-        limit: '50',
-        offset: String(offset)
+        limit: '50'
       });
 
+      if (nextCursor) {
+        params.set('cursor', nextCursor);
+      }
+
       return fetch(`${API_BASE}/games?${params}`, {
-        signal: abortRef.current.signal
+        signal: controller.signal
       })
-        .then((response) => response.json())
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error('game list request failed');
+          }
+
+          return response.json();
+        })
         .then((data) => {
+          if (!validPairs(data)) {
+            throw new Error('invalid game list response');
+          }
+
           dispatch({
             type: append ? 'APPEND' : 'SET',
             data,
             sort: sortConfig
           });
-          setHasMore(data.length === 50);
+
+          if (commitSort) {
+            setSort(sortConfig);
+          }
+
+          const followingCursor = data.length ? gamesCursor(data.at(-1), sortConfig) : null;
+
+          setCursor(followingCursor);
+          setHasMore(data.length === 50 && Boolean(followingCursor));
           setLoaded(true);
-          if (!append) onLoaded?.();
+          setLoadError(null);
         })
         .catch((error) => {
-          if (error.name !== 'AbortError') setLoaded(false);
+          if (error.name !== 'AbortError') {
+            setLoadError('Could not load game history.');
+          }
+        })
+        .finally(() => {
+          if (abortRef.current === controller) {
+            setFetching(false);
+          }
         });
     },
-    [group.hero.slot, group.runId, onLoaded]
+    [group.hero.slot, runId]
   );
 
   useEffect(() => {
@@ -345,51 +464,111 @@ export default function MatchGroup({
 
     if (!open) {
       abortRef.current?.abort();
+      clearTimeout(liveRefreshRef.current);
+      liveRefreshRef.current = null;
+
       timer = setTimeout(() => {
-        dispatch({ type: 'CLEAR' });
+        dispatch({
+          type: 'CLEAR'
+        });
         setHasMore(true);
+        setCursor(null);
         setLoaded(false);
+        setFetching(false);
+        setLoadError(null);
       }, 250);
-    } else if (!loaded) {
+    } else if (!loaded && !fetching && !loadError) {
       fetchGames(sort);
     }
 
     return () => clearTimeout(timer);
-  }, [open, loaded, sort, fetchGames]);
+  }, [open, loaded, fetching, loadError, sort, fetchGames]);
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      clearTimeout(liveRefreshRef.current);
+    },
+    []
+  );
 
   const handleSort = (column) => {
+    if (fetching) return;
+
+    clearTimeout(liveRefreshRef.current);
+    liveRefreshRef.current = null;
+
     const nextSort =
       sort.col === column
-        ? { col: column, asc: !sort.asc }
-        : { col: column, asc: false };
+        ? {
+            col: column,
+            asc: !sort.asc
+          }
+        : {
+            col: column,
+            asc: false
+          };
 
-    setSort(nextSort);
-    fetchGames(nextSort);
+    fetchGames(nextSort, null, false, true);
+  };
+
+  const retry = () => {
+    if (fetching) return;
+
+    clearTimeout(liveRefreshRef.current);
+    liveRefreshRef.current = null;
+
+    fetchGames(sort, null, false);
   };
 
   const loadMore = useCallback(() => {
-    if (loaded && hasMore) fetchGames(sort, pairs.length, true);
-  }, [loaded, hasMore, fetchGames, sort, pairs.length]);
+    if (loaded && hasMore && !fetching && !loadError) {
+      fetchGames(sort, cursor, true);
+    }
+  }, [loaded, hasMore, fetching, loadError, fetchGames, sort, cursor]);
+
+  const refreshPagedHistory = useCallback(() => {
+    if (!hasMore) return;
+
+    clearTimeout(liveRefreshRef.current);
+
+    liveRefreshRef.current = window.setTimeout(() => {
+      liveRefreshRef.current = null;
+
+      fetchGames(sort, null, false);
+    }, 100);
+  }, [fetchGames, hasMore, sort]);
 
   useEffect(() => {
-    if (!open || !loaded || !sentinelRef.current) return undefined;
+    if (!open || !loaded || loadError || !sentinelRef.current) {
+      return undefined;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && hasMore) loadMore();
+        if (entry.isIntersecting && hasMore && !fetching) {
+          loadMore();
+        }
       },
-      { rootMargin: '100px' }
+      {
+        rootMargin: '100px'
+      }
     );
 
     observer.observe(sentinelRef.current);
+
     return () => observer.disconnect();
-  }, [open, loaded, hasMore, loadMore]);
+  }, [open, loaded, loadError, hasMore, fetching, loadMore]);
 
   useEffect(() => {
-    if (!open || !loaded) return undefined;
+    if (!open || !loaded) {
+      return undefined;
+    }
 
     return subscribe((event) => {
-      if (String(getEventRunId(event)) !== String(group.runId)) return;
+      if (String(getEventRunId(event)) !== String(runId)) {
+        return;
+      }
 
       const belongsToMatchup = (blackSlot, whiteSlot) =>
         sameSlotPair(group.hero.slot, group.villain.slot, blackSlot, whiteSlot);
@@ -405,18 +584,21 @@ export default function MatchGroup({
           sort,
           firstSlot: group.hero.slot
         });
+
+        refreshPagedHistory();
       }
 
-      if (
-        (event.type === 'game_move' || event.type === 'game_result') &&
-        event.group_id
-      ) {
+      if ((event.type === 'game_move' || event.type === 'game_result') && event.group_id) {
         dispatch({
           type: 'game_update',
           event,
           sort,
           firstSlot: group.hero.slot
         });
+
+        if (liveEventInvalidatesCursor(event.type, sort.col)) {
+          refreshPagedHistory();
+        }
       }
     });
   }, [
@@ -424,123 +606,176 @@ export default function MatchGroup({
     loaded,
     group.hero.slot,
     group.villain.slot,
-    group.runId,
+    runId,
     subscribe,
-    sort
+    sort,
+    refreshPagedHistory
   ]);
 
   const resultClass = (game) => {
-    if (game.winner_color === 3) return 'res-dot draw';
-    if (game.winner_color === 4) return 'res-dot void';
+    if (game.winner_color === 3) {
+      return 'res-dot draw';
+    }
+
+    if (game.winner_color === 4) {
+      return 'res-dot void';
+    }
+
     return isPlayerWin(game, group.hero.slot) ? 'res-dot res-win' : 'res-dot res-loss';
   };
 
-  const visible = open && loaded;
-  const loading = open && !loaded;
-  const state = !open && loaded ? 'closing' : visible ? 'open' : loading ? 'loading' : 'closed';
+  const loading = open && !loaded && !loadError;
+
+  const state = open ? (loaded ? 'open' : 'loading') : 'closed';
 
   return (
     <div className={`group-item ${state}`} data-testid="match-group">
-      <div className="group-header" onClick={onToggle}>
-        {run && !finished && (
-          <div className="header-progress-bg" style={{ width: `${progress}%` }} />
+      <button
+        type="button"
+        className="group-header"
+        aria-expanded={open}
+        aria-controls={detailsId}
+        onClick={onToggle}
+      >
+        {status === 'live' && totalGames > 0 && (
+          <span
+            className="header-progress-bg"
+            style={{
+              width: `${progress}%`
+            }}
+          />
         )}
-        <div className="header-content">
-          <div className="icon-col">
-            {loading ? (
-              <Loader size={14} className="spin" />
-            ) : visible ? (
-              <ChevronDown size={14} />
-            ) : (
-              <ChevronRight size={14} />
-            )}
-          </div>
-          <div className="group-info">
-            <PlayerRow
-              player={group.hero}
-              run={run}
-              wins={group.heroWins}
-              leading={group.heroWins > group.villainWins}
-            />
-            <PlayerRow
-              player={group.villain}
-              run={run}
-              wins={group.villainWins}
-              leading={group.villainWins > group.heroWins}
-            />
-            <div className="group-summary">
-              <span className="badge win">W {group.heroWins}</span>
-              <span className="badge loss">L {group.villainWins}</span>
-              <span className="badge draw">D {group.draws}</span>
-              {run && (
-                <span className={`badge progress ${finished ? 'finished' : ''}`}>
-                  {run.games_played}/{run.total_games}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className={`group-list ${state}`}>
-        <div className="group-list-inner">
-          <div className="match-header-row">
-            {SORT_COLUMNS.map(([column, label]) => (
-              <div
-                key={column}
-                onClick={() => handleSort(column)}
-                className={`sort-col ${sort.col === column ? 'active' : ''}`}
-              >
-                {label}{' '}
-                {sort.col === column &&
-                  (sort.asc ? <ChevronUp size={10} /> : <ChevronDown size={10} />)}
+
+        <span className="tournament-summary">
+          <span className="summary-row">
+            <Identity player={group.hero} leading={group.heroWins > group.villainWins} />
+            <Record wins={group.heroWins} losses={group.villainWins} draws={group.draws} />
+          </span>
+
+          <span className="summary-row">
+            <Identity player={group.villain} leading={group.villainWins > group.heroWins} />
+            <span className="run-summary">
+              <span className={`run-status ${status}`}>{status.toUpperCase()}</span>
+              <span className="run-progress">
+                {gamesPlayed}
+                {totalGames > 0 ? `/${totalGames}` : ''}
+              </span>
+            </span>
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div id={detailsId} className={`group-list ${state}`} aria-busy={fetching}>
+          <div className="group-list-inner">
+            <TournamentStats group={group} run={effectiveRun} />
+
+            {loadError && (
+              <div className="history-error" role="alert">
+                <span>{loadError}</span>
+                <button type="button" onClick={retry} disabled={fetching}>
+                  Retry
+                </button>
               </div>
-            ))}
-          </div>
-          {pairs.map((pair) => (
-            <div
-              key={pair.group_id}
-              className={`pair-container ${pair.games.length === 1 ? 'pending' : ''}`}
-            >
-              {pair.games.map((game) => (
-                <div
-                  key={game.id}
-                  className={`match-row ${selectedGameId === game.id ? 'active' : ''}`}
-                  onClick={() => onSelectGame(game.id)}
-                  data-testid="match-row"
-                >
-                  <div className="row-id">#{game.id}</div>
-                  <div className="row-moves">{game.move_count || 0}</div>
-                  <div className="row-status">
-                    {game.winner_color === 0 ? (
-                      <span className="live-dot" />
-                    ) : (
-                      <div className={resultClass(game)} />
+            )}
+
+            {loading && (
+              <div className="loading-sentinel">
+                <Loader size={14} className="spin" />
+              </div>
+            )}
+
+            {loaded && (
+              <>
+                <div className="match-header-row" aria-label="Sort historical games">
+                  {SORT_COLUMNS.map(({ column, label, name }) => {
+                    const active = sort.col === column;
+
+                    const direction = active
+                      ? sort.asc
+                        ? 'ascending'
+                        : 'descending'
+                      : 'not selected';
+
+                    return (
+                      <div key={column} className="sort-cell">
+                        <button
+                          type="button"
+                          onClick={() => handleSort(column)}
+                          className={`sort-col ${active ? 'active' : ''}`}
+                          aria-pressed={active}
+                          aria-label={`Sort by ${name}, ${direction}`}
+                          disabled={fetching}
+                        >
+                          {label}
+                          {active &&
+                            (sort.asc ? <ChevronUp size={10} /> : <ChevronDown size={10} />)}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {pairs.map((pair) => (
+                  <div
+                    key={pair.group_id}
+                    className={`pair-container ${pair.games.length === 1 ? 'pending' : ''}`}
+                  >
+                    {pair.games.map((game) => {
+                      const moves = game.move_count || 0;
+
+                      const outcome = resultLabel(game, group.hero.slot);
+
+                      const time = gameTime(game.timestamp);
+
+                      return (
+                        <button
+                          type="button"
+                          key={game.id}
+                          className={`match-row ${selectedGameId === game.id ? 'active' : ''}`}
+                          onClick={() => onSelectGame(game.id)}
+                          data-testid="match-row"
+                          aria-label={`Game ${game.id}, ${moves} moves, ${outcome}, ${time}`}
+                        >
+                          <span className="row-id" aria-hidden="true">
+                            #{game.id}
+                          </span>
+                          <span className="row-moves" aria-hidden="true">
+                            {moves}
+                          </span>
+                          <span className="row-status" aria-hidden="true">
+                            {game.winner_color === 0 ? (
+                              <span className="live-dot" />
+                            ) : (
+                              <span className={resultClass(game)} />
+                            )}
+                          </span>
+                          <span className="row-time" aria-hidden="true">
+                            {time}
+                          </span>
+                        </button>
+                      );
+                    })}
+
+                    {pair.games.length === 1 && (
+                      <div className="pending-row">
+                        <Loader size={12} className="spin" />
+                        Waiting for pair...
+                      </div>
                     )}
                   </div>
-                  <div className="row-time">
-                    {new Date(game.timestamp).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false
-                    })}
+                ))}
+
+                {hasMore && (
+                  <div ref={sentinelRef} className="loading-sentinel">
+                    {fetching && <Loader size={14} className="spin" />}
                   </div>
-                </div>
-              ))}
-              {pair.games.length === 1 && (
-                <div className="pending-row">
-                  <Loader size={12} className="spin" />
-                  Waiting for pair...
-                </div>
-              )}
-            </div>
-          ))}
-          {hasMore && (
-            <div ref={sentinelRef} className="loading-sentinel">
-              {loading && <Loader size={14} className="spin" />}
-            </div>
-          )}
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

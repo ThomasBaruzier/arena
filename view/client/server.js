@@ -20,7 +20,10 @@ app.use(
     },
     onError: (error, req, res) => {
       console.error('Proxy error:', error.message);
-      if (!res.headersSent) res.status(502).send('Proxy error');
+
+      if (!res.headersSent) {
+        res.status(502).send('Proxy error');
+      }
     }
   })
 );

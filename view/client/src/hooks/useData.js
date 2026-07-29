@@ -1,9 +1,25 @@
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { getEventRunId, getRunId, matchupKey, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
+
 const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'game_result']);
+
 const sameId = (first, second) => String(first) === String(second);
+
+const readCollection = async (response, label) => {
+  if (!response.ok) {
+    throw new Error(`${label} request failed`);
+  }
+
+  const data = await response.json();
+
+  if (!Array.isArray(data)) {
+    throw new Error(`${label} response is not a collection`);
+  }
+
+  return data;
+};
 
 const playerFromGame = (game, runId, slot) => {
   const black = game.black_slot === slot;
@@ -33,33 +49,36 @@ export const matchupsReducer = (state, action) => {
   switch (action.type) {
     case 'SET':
       return action.data;
+
     case 'APPEND':
       return [
         ...new Map(
           [...state, ...action.data].map((matchup) => [matchupKey(matchup), matchup])
         ).values()
       ];
+
     case 'RESET':
       return [];
+
     case 'game_start': {
       const event = action.event;
+
       if (!event.game) return state;
 
       const runId = getEventRunId(event);
+
       if (!runId) return state;
 
-      const existingIndex = state.findIndex((matchup) =>
-        sameId(getRunId(matchup), runId)
-      );
+      const existingIndex = state.findIndex((matchup) => sameId(getRunId(matchup), runId));
 
       if (existingIndex !== -1) {
         const current = state[existingIndex];
+
         const updated = {
           ...current,
           runId,
           lastActivity: event.game.timestamp,
-          live_count:
-            (current.live_count || 0) + (event.game.winner_color === 0 ? 1 : 0)
+          live_count: (current.live_count || 0) + (event.game.winner_color === 0 ? 1 : 0)
         };
 
         return [updated, ...state.filter((_, index) => index !== existingIndex)];
@@ -68,6 +87,7 @@ export const matchupsReducer = (state, action) => {
       return [
         {
           runId,
+          status: 'live',
           hero: playerFromGame(event.game, runId, 1),
           villain: playerFromGame(event.game, runId, 2),
           heroWins: 0,
@@ -80,25 +100,34 @@ export const matchupsReducer = (state, action) => {
         ...state
       ];
     }
+
     case 'run_update': {
       const run = action.event.run || action.event;
       const runId = getEventRunId(action.event);
 
       return state.map((matchup) => {
-        if (!sameId(getRunId(matchup), runId)) return matchup;
+        if (!sameId(getRunId(matchup), runId)) {
+          return matchup;
+        }
 
         return {
           ...matchup,
+          status: run.status ?? matchup.status,
+          run: {
+            ...(matchup.run || {}),
+            ...run,
+            id: run.id ?? runId
+          },
           hero: playerFromRun(run, runId, 1, matchup.hero),
           villain: playerFromRun(run, runId, 2, matchup.villain),
           heroWins: typeof run.wins === 'number' ? run.wins : matchup.heroWins,
-          villainWins:
-            typeof run.losses === 'number' ? run.losses : matchup.villainWins,
+          villainWins: typeof run.losses === 'number' ? run.losses : matchup.villainWins,
           draws: run.draws ?? matchup.draws,
           total: run.games_played ?? matchup.total
         };
       });
     }
+
     case 'game_result': {
       const event = action.event;
       const runId = getEventRunId(event);
@@ -106,14 +135,11 @@ export const matchupsReducer = (state, action) => {
       return state.map((matchup) => {
         const matches =
           sameId(getRunId(matchup), runId) &&
-          sameSlotPair(
-            matchup.hero.slot,
-            matchup.villain.slot,
-            event.black_slot,
-            event.white_slot
-          );
+          sameSlotPair(matchup.hero.slot, matchup.villain.slot, event.black_slot, event.white_slot);
 
-        if (!matches) return matchup;
+        if (!matches) {
+          return matchup;
+        }
 
         return {
           ...matchup,
@@ -125,6 +151,7 @@ export const matchupsReducer = (state, action) => {
         };
       });
     }
+
     default:
       return state;
   }
@@ -139,22 +166,30 @@ export function useMatchups(subscribe) {
 
   useEffect(() => {
     const controller = new AbortController();
+
     setLoading(true);
 
     fetch(`${API_BASE}/matchups?limit=20&offset=${page * 20}`, {
       signal: controller.signal
     })
-      .then((response) => response.json())
+      .then((response) => readCollection(response, 'matchups'))
       .then((data) => {
         dispatch({
           type: page === 0 ? 'SET' : 'APPEND',
           data
         });
+
         setHasMore(data.length === 20);
-        setLoading(false);
       })
       .catch((error) => {
-        if (error.name !== 'AbortError') setLoading(false);
+        if (error.name !== 'AbortError') {
+          setHasMore(false);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       });
 
     return () => controller.abort();
@@ -173,7 +208,9 @@ export function useMatchups(subscribe) {
     () =>
       subscribe((event) => {
         if (event.type === 'reset') {
-          dispatch({ type: 'RESET' });
+          dispatch({
+            type: 'RESET'
+          });
           loadMore(true);
         } else if (event.type === 'run_start') {
           loadMore(true);
@@ -198,25 +235,59 @@ export function useMatchups(subscribe) {
 export function useRuns(subscribe) {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const requestRef = useRef({
+    revision: 0,
+    controller: null
+  });
 
   const refresh = useCallback(() => {
+    requestRef.current.controller?.abort();
+
+    const controller = new AbortController();
+    const revision = ++requestRef.current.revision;
+
+    requestRef.current.controller = controller;
     setLoading(true);
 
-    return fetch(`${API_BASE}/runs`)
-      .then((response) => response.json())
-      .then(setRuns)
-      .finally(() => setLoading(false));
+    return fetch(`${API_BASE}/runs`, {
+      signal: controller.signal
+    })
+      .then((response) => readCollection(response, 'runs'))
+      .then((data) => {
+        if (revision === requestRef.current.revision && !controller.signal.aborted) {
+          setRuns(data);
+        }
+
+        return data;
+      })
+      .finally(() => {
+        if (revision === requestRef.current.revision) {
+          requestRef.current.controller = null;
+
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
+        }
+      });
   }, []);
 
   useEffect(() => {
-    refresh();
+    const request = requestRef.current;
+
+    refresh().catch(() => {});
+
+    return () => {
+      request.revision += 1;
+      request.controller?.abort();
+      request.controller = null;
+    };
   }, [refresh]);
 
   useEffect(
     () =>
       subscribe((event) => {
         if (event.type === 'reset') {
-          refresh();
+          refresh().catch(() => {});
         } else if (event.type === 'run_start' && event.run) {
           setRuns((current) => [
             event.run,
@@ -225,7 +296,12 @@ export function useRuns(subscribe) {
         } else if (event.type === 'run_update' && event.run) {
           setRuns((current) =>
             current.map((run) =>
-              sameId(run.id, event.run.id) ? { ...run, ...event.run } : run
+              sameId(run.id, event.run.id)
+                ? {
+                    ...run,
+                    ...event.run
+                  }
+                : run
             )
           );
         }
