@@ -33,6 +33,7 @@ public:
     pid_t pid() const { return process_->pid(); }
 
 private:
+    bool fail(const std::string& message);
     bool send_cmd(const std::string& command);
 
     bool send_board(

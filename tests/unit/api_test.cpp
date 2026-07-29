@@ -14,11 +14,12 @@ protected:
 
     void SetUp() override {
         CurlMock::reset();
-        api = std::make_shared<Net::ApiManager>(
-            "http://url",
-            "key",
-            0
-        );
+        api =
+            std::make_shared<Net::ApiManager>(
+                "http://url",
+                "key",
+                0
+            );
     }
 
     void TearDown() override {
@@ -43,7 +44,8 @@ TEST_F(ApiTest, EventJsonStructure) {
     value.y = 10;
     value.c = 1;
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"type\":\"move\""),
@@ -68,7 +70,8 @@ TEST_F(ApiTest, ResultEvent) {
     value.winner = 1;
     value.moves = "a1b2";
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"type\":\"result\""),
@@ -91,7 +94,8 @@ TEST_F(ApiTest, InjectionProtection) {
     value.p2_name = "bot2";
     value.p2v = "v2";
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\\\""),
@@ -109,7 +113,8 @@ TEST_F(ApiTest, BatchFormat) {
         event("b")
     };
 
-    std::string json = api->build_json_payload(batch);
+    std::string json =
+        api->build_json_payload(batch);
 
     EXPECT_EQ(json.front(), '[');
     EXPECT_EQ(json.back(), ']');
@@ -120,7 +125,9 @@ TEST_F(ApiTest, BatchFormat) {
 }
 
 TEST_F(ApiTest, RunStartEvent) {
-    auto value = event("run_start", "run123");
+    auto value =
+        event("run_start", "run123");
+
     value.p1_name = "bot1";
     value.p1v = "v1";
     value.p2_name = "bot2";
@@ -128,6 +135,7 @@ TEST_F(ApiTest, RunStartEvent) {
     value.p1_cmd = "./bot1";
     value.p2_cmd = "./bot2";
     value.config_label = "test_conf";
+    value.status = "live";
     value.total_games = 100;
     value.p1_nodes = 1000;
     value.p2_nodes = 2000;
@@ -138,7 +146,8 @@ TEST_F(ApiTest, RunStartEvent) {
     value.repeat_index = 0;
     value.seed = 12345ULL;
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"type\":\"run_start\""),
@@ -146,6 +155,10 @@ TEST_F(ApiTest, RunStartEvent) {
     );
     EXPECT_NE(
         json.find("\"run_id\":\"run123\""),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"status\":\"live\""),
         std::string::npos
     );
     EXPECT_NE(
@@ -183,7 +196,10 @@ TEST_F(ApiTest, RunStartEvent) {
 }
 
 TEST_F(ApiTest, RunUpdateEvent) {
-    auto value = event("run_update", "run123");
+    auto value =
+        event("run_update", "run123");
+
+    value.status = "ended";
     value.games_played = 10;
     value.wins = 5;
     value.losses = 2;
@@ -191,11 +207,28 @@ TEST_F(ApiTest, RunUpdateEvent) {
     value.wall_time_ms = 5000;
     value.p1_elo = 1200;
     value.p2_elo = 1150;
+    value.p1_erf = 60.5;
+    value.p2_erf = 39.5;
+    value.p1_time = 1000;
+    value.p2_time = 1200;
+    value.p1_cpu_time = 900;
+    value.p2_cpu_time = 800;
+    value.p1_cpu_wall_time = 1000;
+    value.p2_cpu_wall_time = 1100;
+    value.p1_moves_analyzed = 14;
+    value.p2_moves_analyzed = 12;
+    value.p1_critical_total = 4;
+    value.p2_critical_total = 3;
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"type\":\"run_update\""),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"status\":\"ended\""),
         std::string::npos
     );
     EXPECT_NE(
@@ -206,18 +239,67 @@ TEST_F(ApiTest, RunUpdateEvent) {
         json.find("\"p1_elo\":1200"),
         std::string::npos
     );
+    EXPECT_NE(
+        json.find("\"p1_cpu_time\":900"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"p2_cpu_time\":800"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find(
+            "\"p1_cpu_wall_time\":1000"
+        ),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find(
+            "\"p2_cpu_wall_time\":1100"
+        ),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"p1_moves_analyzed\":14"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"p2_moves_analyzed\":12"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"p1_critical_total\":4"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"p2_critical_total\":3"),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"is_done\""),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"timed_out\""),
+        std::string::npos
+    );
 }
 
 TEST_F(ApiTest, EmptyBatch) {
     std::vector<Net::ApiManager::Event> batch;
 
-    EXPECT_EQ(api->build_json_payload(batch), "[]");
+    EXPECT_EQ(
+        api->build_json_payload(batch),
+        "[]"
+    );
 }
 
 TEST_F(ApiTest, NullSeedRendering) {
-    auto value = event("run_start", "test");
+    auto value =
+        event("run_start", "test");
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"seed\":null"),
@@ -226,10 +308,13 @@ TEST_F(ApiTest, NullSeedRendering) {
 }
 
 TEST_F(ApiTest, SeedPresentRendering) {
-    auto value = event("run_start", "test");
+    auto value =
+        event("run_start", "test");
+
     value.seed = 42ULL;
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\"seed\":42"),
@@ -238,22 +323,31 @@ TEST_F(ApiTest, SeedPresentRendering) {
 }
 
 TEST_F(ApiTest, LargeBatchFormat) {
-    std::vector<Net::ApiManager::Event> batch(100);
+    std::vector<Net::ApiManager::Event>
+        batch(100);
 
-    for (int i = 0; i < 100; ++i) {
-        batch[i].type = "move";
-        batch[i].x = i;
+    for (int index = 0; index < 100; ++index) {
+        batch[index].type = "move";
+        batch[index].x = index;
     }
 
-    std::string json = api->build_json_payload(batch);
+    std::string json =
+        api->build_json_payload(batch);
 
     EXPECT_EQ(json.front(), '[');
     EXPECT_EQ(json.back(), ']');
 
     int separators = 0;
 
-    for (size_t i = 1; i + 1 < json.size(); ++i) {
-        if (json[i] == ',' && json[i - 1] == '}') {
+    for (
+        size_t index = 1;
+        index + 1 < json.size();
+        ++index
+    ) {
+        if (
+            json[index] == ',' &&
+            json[index - 1] == '}'
+        ) {
             ++separators;
         }
     }
@@ -266,7 +360,8 @@ TEST_F(ApiTest, SpecialCharsInNames) {
     value.p1_name = "bot\twith\ttabs";
     value.p2_name = "bot\nwith\nnewlines";
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
         json.find("\\t"),
@@ -278,14 +373,23 @@ TEST_F(ApiTest, SpecialCharsInNames) {
     );
 }
 
-TEST_F(ApiTest, BooleanFieldRendering) {
+TEST_F(ApiTest, StatusFieldRendering) {
     auto value = event("run_update");
-    value.is_done = true;
+    value.status = "stopped";
 
-    std::string json = api->build_event_json(value);
+    std::string json =
+        api->build_event_json(value);
 
     EXPECT_NE(
-        json.find("\"is_done\":true"),
+        json.find("\"status\":\"stopped\""),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"is_done\""),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"timed_out\""),
         std::string::npos
     );
 }
@@ -337,14 +441,20 @@ TEST_F(ApiTest, AllEventTypes) {
     );
 }
 
-TEST_F(ApiTest, CoalescesProgressUpdatesByRun) {
-    auto first = event("run_update", "run1");
+TEST_F(ApiTest, CoalescesLiveUpdatesByRun) {
+    auto first =
+        event("run_update", "run1");
+    first.status = "live";
     first.games_played = 1;
 
-    auto other = event("run_update", "run2");
+    auto other =
+        event("run_update", "run2");
+    other.status = "live";
     other.games_played = 4;
 
-    auto latest = event("run_update", "run1");
+    auto latest =
+        event("run_update", "run1");
+    latest.status = "live";
     latest.games_played = 7;
 
     api->enqueue(first);
@@ -363,36 +473,71 @@ TEST_F(ApiTest, CoalescesProgressUpdatesByRun) {
 
     ASSERT_NE(run1, api->queue_.end());
     EXPECT_EQ(run1->games_played, 7);
-    EXPECT_EQ(api->queue_.back().run_id, "run1");
+    EXPECT_EQ(
+        api->queue_.back().run_id,
+        "run1"
+    );
 }
 
-TEST_F(ApiTest, FinalRunUpdateIsNotCoalesced) {
-    auto progress = event("run_update", "run1");
+TEST_F(ApiTest, EndedUpdateIsNotCoalesced) {
+    auto progress =
+        event("run_update", "run1");
+    progress.status = "live";
     progress.games_played = 2;
 
-    auto final = event("run_update", "run1");
+    auto final =
+        event("run_update", "run1");
+    final.status = "ended";
     final.games_played = 4;
-    final.is_done = true;
 
     api->enqueue(progress);
     api->enqueue(final);
 
     ASSERT_EQ(api->queue_.size(), 2);
-    EXPECT_FALSE(api->queue_.front().is_done);
-    EXPECT_TRUE(api->queue_.back().is_done);
+    EXPECT_EQ(
+        api->queue_.front().status,
+        "live"
+    );
+    EXPECT_EQ(
+        api->queue_.back().status,
+        "ended"
+    );
+}
+
+TEST_F(ApiTest, StoppedUpdateIsNotCoalesced) {
+    auto progress =
+        event("run_update", "run1");
+    progress.status = "live";
+
+    auto final =
+        event("run_update", "run1");
+    final.status = "stopped";
+
+    api->enqueue(progress);
+    api->enqueue(final);
+
+    ASSERT_EQ(api->queue_.size(), 2);
+    EXPECT_EQ(
+        api->queue_.back().status,
+        "stopped"
+    );
 }
 
 TEST_F(ApiTest, EvictsProgressBeforeCriticalEvent) {
-    auto progress = event("run_update", "progress");
+    auto progress =
+        event("run_update", "progress");
+    progress.status = "live";
     api->enqueue(progress);
 
     for (
-        size_t i = 1;
-        i < Core::Constants::API_QUEUE_MAX;
-        ++i
+        size_t index = 1;
+        index <
+            Core::Constants::API_QUEUE_MAX;
+        ++index
     ) {
         auto start = event("start");
-        start.ext_id = std::to_string(i);
+        start.ext_id =
+            std::to_string(index);
         api->enqueue(std::move(start));
     }
 
@@ -410,8 +555,10 @@ TEST_F(ApiTest, EvictsProgressBeforeCriticalEvent) {
             api->queue_.begin(),
             api->queue_.end(),
             [](const auto& queued) {
-                return queued.type == "run_update" &&
-                    !queued.is_done;
+                return
+                    queued.type ==
+                        "run_update" &&
+                    queued.status == "live";
             }
         ),
         0
@@ -422,7 +569,8 @@ TEST_F(ApiTest, EvictsProgressBeforeCriticalEvent) {
             api->queue_.begin(),
             api->queue_.end(),
             [](const auto& queued) {
-                return queued.type == "result" &&
+                return
+                    queued.type == "result" &&
                     queued.ext_id == "result";
             }
         )
@@ -435,12 +583,14 @@ TEST_F(ApiTest, EvictsMoveBeforeCriticalEvent) {
     api->enqueue(move);
 
     for (
-        size_t i = 1;
-        i < Core::Constants::API_QUEUE_MAX;
-        ++i
+        size_t index = 1;
+        index <
+            Core::Constants::API_QUEUE_MAX;
+        ++index
     ) {
         auto start = event("start");
-        start.ext_id = std::to_string(i);
+        start.ext_id =
+            std::to_string(index);
         api->enqueue(std::move(start));
     }
 
@@ -458,8 +608,10 @@ TEST_F(ApiTest, EvictsMoveBeforeCriticalEvent) {
             api->queue_.begin(),
             api->queue_.end(),
             [](const auto& queued) {
-                return queued.type == "move" &&
-                    queued.ext_id == "old-move";
+                return
+                    queued.type == "move" &&
+                    queued.ext_id ==
+                        "old-move";
             }
         )
     );
@@ -469,7 +621,8 @@ TEST_F(ApiTest, EvictsMoveBeforeCriticalEvent) {
             api->queue_.begin(),
             api->queue_.end(),
             [](const auto& queued) {
-                return queued.type == "result" &&
+                return
+                    queued.type == "result" &&
                     queued.ext_id == "result";
             }
         )
@@ -478,16 +631,19 @@ TEST_F(ApiTest, EvictsMoveBeforeCriticalEvent) {
 
 TEST_F(ApiTest, DropsIncomingWhenOnlyCriticalEventsRemain) {
     for (
-        size_t i = 0;
-        i < Core::Constants::API_QUEUE_MAX;
-        ++i
+        size_t index = 0;
+        index <
+            Core::Constants::API_QUEUE_MAX;
+        ++index
     ) {
         auto start = event("start");
-        start.ext_id = std::to_string(i);
+        start.ext_id =
+            std::to_string(index);
         api->enqueue(std::move(start));
     }
 
-    size_t dropped_before = api->dropped_;
+    size_t dropped_before =
+        api->dropped_;
 
     auto result = event("result");
     result.ext_id = "cannot-fit";
@@ -497,13 +653,17 @@ TEST_F(ApiTest, DropsIncomingWhenOnlyCriticalEventsRemain) {
         api->queue_.size(),
         Core::Constants::API_QUEUE_MAX
     );
-    EXPECT_EQ(api->dropped_, dropped_before + 1);
+    EXPECT_EQ(
+        api->dropped_,
+        dropped_before + 1
+    );
     EXPECT_FALSE(
         std::any_of(
             api->queue_.begin(),
             api->queue_.end(),
             [](const auto& queued) {
-                return queued.ext_id == "cannot-fit";
+                return queued.ext_id ==
+                    "cannot-fit";
             }
         )
     );
@@ -512,7 +672,6 @@ TEST_F(ApiTest, DropsIncomingWhenOnlyCriticalEventsRemain) {
 TEST_F(ApiTest, StartAndStopAreIdempotent) {
     api->start();
     api->start();
-
     api->enqueue(event("move"));
 
     EXPECT_NO_THROW(api->stop());
@@ -522,11 +681,12 @@ TEST_F(ApiTest, StartAndStopAreIdempotent) {
 }
 
 TEST_F(ApiTest, ExplicitStopAndDestructorAreSafe) {
-    auto manager = std::make_shared<Net::ApiManager>(
-        "http://url",
-        "key",
-        0
-    );
+    auto manager =
+        std::make_shared<Net::ApiManager>(
+            "http://url",
+            "key",
+            0
+        );
 
     manager->start();
     manager->enqueue(event("move"));
@@ -539,24 +699,34 @@ TEST_F(ApiTest, PermanentFailureDoesNotBlockProducers) {
     CurlMock::fail_perform();
     api->start();
 
-    auto begin = std::chrono::steady_clock::now();
+    auto begin =
+        std::chrono::steady_clock::now();
 
-    for (int i = 0; i < 20000; ++i) {
+    for (int index = 0; index < 20000; ++index) {
         auto move = event("move");
-        move.x = i;
+        move.x = index;
         api->enqueue(std::move(move));
     }
 
     auto enqueue_elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - begin
+        std::chrono::duration_cast<
+            std::chrono::milliseconds
+        >(
+            std::chrono::steady_clock::now() -
+            begin
         ).count();
 
-    auto stop_begin = std::chrono::steady_clock::now();
+    auto stop_begin =
+        std::chrono::steady_clock::now();
+
     api->stop();
+
     auto stop_elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - stop_begin
+        std::chrono::duration_cast<
+            std::chrono::milliseconds
+        >(
+            std::chrono::steady_clock::now() -
+            stop_begin
         ).count();
 
     EXPECT_LT(enqueue_elapsed, 2000);
@@ -568,18 +738,25 @@ TEST_F(ApiTest, CurlInitializationFailureDisablesDelivery) {
     CurlMock::fail_init();
     api->start();
 
-    for (int i = 0; i < 100; ++i) {
+    for (int index = 0; index < 100; ++index) {
         {
-            std::lock_guard<std::mutex> lock(api->mtx_);
+            std::lock_guard<std::mutex> lock(
+                api->mtx_
+            );
+
             if (api->disabled_) break;
         }
+
         std::this_thread::sleep_for(
             std::chrono::milliseconds(2)
         );
     }
 
     {
-        std::lock_guard<std::mutex> lock(api->mtx_);
+        std::lock_guard<std::mutex> lock(
+            api->mtx_
+        );
+
         EXPECT_TRUE(api->disabled_);
         EXPECT_FALSE(api->accepting_);
     }
@@ -590,9 +767,9 @@ TEST_F(ApiTest, CurlInitializationFailureDisablesDelivery) {
 TEST_F(ApiTest, SuccessfulWorkerPreservesBatchOrder) {
     api->start();
 
-    for (int i = 0; i < 3; ++i) {
+    for (int index = 0; index < 3; ++index) {
         auto move = event("move");
-        move.x = i;
+        move.x = index;
         api->enqueue(std::move(move));
     }
 
@@ -601,10 +778,15 @@ TEST_F(ApiTest, SuccessfulWorkerPreservesBatchOrder) {
     auto calls = CurlMock::get_calls();
     ASSERT_FALSE(calls.empty());
 
-    const auto& body = calls.front().post_data;
-    size_t first = body.find("\"x\":0");
-    size_t second = body.find("\"x\":1");
-    size_t third = body.find("\"x\":2");
+    const auto& body =
+        calls.front().post_data;
+
+    size_t first =
+        body.find("\"x\":0");
+    size_t second =
+        body.find("\"x\":1");
+    size_t third =
+        body.find("\"x\":2");
 
     ASSERT_NE(first, std::string::npos);
     ASSERT_NE(second, std::string::npos);
@@ -618,26 +800,46 @@ TEST_F(ApiTest, OnlyTwoHundredsAreSuccessful) {
         event("move")
     };
 
-    for (long status : {200L, 204L, 299L}) {
+    for (
+        long status :
+        {200L, 204L, 299L}
+    ) {
         CurlMock::reset();
+
         CurlMock::MockConfig config;
         config.http_code = status;
         CurlMock::configure(config);
 
         Net::CurlHandle curl;
         ASSERT_TRUE(curl);
-        EXPECT_TRUE(api->send_batch(curl.get(), batch));
+
+        EXPECT_TRUE(
+            api->send_batch(
+                curl.get(),
+                batch
+            )
+        );
     }
 
-    for (long status : {199L, 300L, 302L, 400L, 500L}) {
+    for (
+        long status :
+        {199L, 300L, 302L, 400L, 500L}
+    ) {
         CurlMock::reset();
+
         CurlMock::MockConfig config;
         config.http_code = status;
         CurlMock::configure(config);
 
         Net::CurlHandle curl;
         ASSERT_TRUE(curl);
-        EXPECT_FALSE(api->send_batch(curl.get(), batch));
+
+        EXPECT_FALSE(
+            api->send_batch(
+                curl.get(),
+                batch
+            )
+        );
     }
 }
 
@@ -651,5 +853,10 @@ TEST_F(ApiTest, TransportFailureIsNotSuccessful) {
         event("move")
     };
 
-    EXPECT_FALSE(api->send_batch(curl.get(), batch));
+    EXPECT_FALSE(
+        api->send_batch(
+            curl.get(),
+            batch
+        )
+    );
 }

@@ -13,7 +13,6 @@
 #include "../core/config_types.h"
 #include "../core/types.h"
 #include "../stats/tracker.h"
-#include "../sys/cpu_monitor.h"
 #include "../sys/process.h"
 
 namespace Arena::App {
@@ -43,7 +42,6 @@ struct RunContext {
     std::atomic<long long> total_wall_time_ms{0};
 
     std::chrono::steady_clock::time_point run_start;
-    Sys::CpuMonitor::Times run_start_cpu;
 
     std::atomic<int> games_completed{0};
     std::atomic<int> games_skipped{0};

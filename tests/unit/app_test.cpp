@@ -26,7 +26,8 @@ TEST_F(AppTest, NdjsonFormat) {
             run,
             state,
             stats,
-            10.0
+            10.0,
+            "ended"
         );
 
     EXPECT_NE(
@@ -40,6 +41,189 @@ TEST_F(AppTest, NdjsonFormat) {
     EXPECT_NE(
         json.find("\"elo\":1200"),
         std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"status\":\"ended\""),
+        std::string::npos
+    );
+}
+
+TEST_F(AppTest, NdjsonContainsCurrentTelemetry) {
+    Core::BatchConfig batch;
+    batch.p1_cmd = "p1";
+    batch.p2_cmd = "p2";
+
+    Core::RunSpec run;
+    App::MatchState state;
+    Stats::Tracker stats;
+
+    stats.add_timing(1, 400, 300);
+    stats.add_timing(2, 500, 250);
+    stats.add_metrics(1, 0.01, 0.10);
+    stats.add_metrics(2, 0.25, 0.01);
+
+    std::string json =
+        App::format_ndjson_line(
+            batch,
+            run,
+            state,
+            stats,
+            1.0,
+            "stopped"
+        );
+
+    EXPECT_NE(
+        json.find("\"status\":\"stopped\""),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"time\":400"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"cpu_time\":300"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find(
+            "\"cpu_wall_time\":400"
+        ),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"eff\":75"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"moves_analyzed\":1"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"critical_total\":1"),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"is_done\""),
+        std::string::npos
+    );
+    EXPECT_EQ(
+        json.find("\"timed_out\""),
+        std::string::npos
+    );
+}
+
+TEST_F(AppTest, NdjsonUsesNullForUnavailableEfficiency) {
+    Core::BatchConfig batch;
+    Core::RunSpec run;
+    App::MatchState state;
+    Stats::Tracker stats;
+
+    std::string json =
+        App::format_ndjson_line(
+            batch,
+            run,
+            state,
+            stats,
+            0.0,
+            "ended"
+        );
+
+    EXPECT_NE(
+        json.find("\"eff\":null"),
+        std::string::npos
+    );
+}
+
+TEST_F(AppTest, RunStatusIsLiveBeforeFinalization) {
+    App::RunContext context;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            false
+        ),
+        "live"
+    );
+}
+
+TEST_F(AppTest, RunStatusEndsAfterNaturalCompletion) {
+    App::RunContext context;
+    context.total_games_expected = 4;
+    context.games_completed = 4;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true
+        ),
+        "ended"
+    );
+}
+
+TEST_F(AppTest, RunStatusStopsWhenIncomplete) {
+    App::RunContext context;
+    context.total_games_expected = 4;
+    context.games_completed = 3;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true
+        ),
+        "stopped"
+    );
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true,
+            true
+        ),
+        "stopped"
+    );
+}
+
+TEST_F(AppTest, RunStatusStopsForSkippedGames) {
+    App::RunContext context;
+    context.total_games_expected = 4;
+    context.games_completed = 2;
+    context.games_skipped = 2;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true
+        ),
+        "stopped"
+    );
+}
+
+TEST_F(AppTest, RunStatusStopsForPendingEvaluations) {
+    App::RunContext context;
+    context.total_games_expected = 2;
+    context.games_completed = 2;
+    context.pending_evaluations = 1;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true
+        ),
+        "stopped"
+    );
+}
+
+TEST_F(AppTest, RunStatusStopsForFailedContext) {
+    App::RunContext context;
+    context.total_games_expected = 2;
+    context.games_completed = 2;
+    context.failed = true;
+
+    EXPECT_EQ(
+        App::run_status(
+            context,
+            true
+        ),
+        "stopped"
     );
 }
 
@@ -233,6 +417,8 @@ TEST_F(AppTest, NdjsonFormatFullStats) {
     stats.p1_severe_errors = 5;
     stats.p1_moves_analyzed = 100;
     stats.p2_moves_analyzed = 100;
+    stats.add_timing(1, 1000, 800);
+    stats.add_timing(2, 1000, 700);
 
     std::string json =
         App::format_ndjson_line(
@@ -240,7 +426,8 @@ TEST_F(AppTest, NdjsonFormatFullStats) {
             run,
             state,
             stats,
-            10.0
+            10.0,
+            "ended"
         );
 
     EXPECT_NE(
@@ -257,6 +444,14 @@ TEST_F(AppTest, NdjsonFormatFullStats) {
     );
     EXPECT_NE(
         json.find("\"time\":"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"cpu_time\":"),
+        std::string::npos
+    );
+    EXPECT_NE(
+        json.find("\"eff\":"),
         std::string::npos
     );
 }

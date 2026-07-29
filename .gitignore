@@ -9,6 +9,8 @@ pbrain-*
 data/
 dist/
 node_modules/
+view/client/test-results/
+view/client/playwright-report/
 
 # other
 bots/

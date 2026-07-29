@@ -5,6 +5,7 @@
 #include "../core/utils.h"
 #include "../sys/cpu_monitor.h"
 #include "../sys/signals.h"
+#include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -13,7 +14,8 @@ namespace Arena::Game {
 
 namespace {
 
-struct InitializationError : std::runtime_error {
+struct InitializationError :
+    std::runtime_error {
     InitializationError(
         Player* failed_player,
         const std::string& message
@@ -25,12 +27,17 @@ struct InitializationError : std::runtime_error {
     Player* player;
 };
 
-struct OpeningError : std::runtime_error {
-    using std::runtime_error::runtime_error;
+struct OpeningError :
+    std::runtime_error {
+    using std::runtime_error::
+        runtime_error;
 };
 
-Net::ApiManager::Event make_run_start_event(
-    const std::shared_ptr<App::RunContext>& context,
+Net::ApiManager::Event
+make_run_start_event(
+    const std::shared_ptr<
+        App::RunContext
+    >& context,
     const Player& slot1,
     const Player& slot2
 ) {
@@ -43,7 +50,8 @@ Net::ApiManager::Event make_run_start_event(
     event.p2v = slot2.version();
     event.p1_cmd = slot1.path();
     event.p2_cmd = slot2.path();
-    event.config_label = context->config_label;
+    event.config_label =
+        context->config_label;
     event.total_games =
         context->total_games_expected;
     event.p1_nodes =
@@ -60,7 +68,8 @@ Net::ApiManager::Event make_run_start_event(
         context->run_spec.max_pairs;
     event.repeat_index =
         context->run_spec.repeat_index;
-    event.seed = context->run_spec.seed;
+    event.seed =
+        context->run_spec.seed;
     return event;
 }
 
@@ -68,11 +77,16 @@ Net::ApiManager::Event make_run_start_event(
 
 Referee::Referee(
     App::GameParams params,
-    std::shared_ptr<Net::ApiManager> api,
+    std::shared_ptr<
+        Net::ApiManager
+    > api,
     Stats::Tracker& stats,
     ResultCallback callback
 ) :
-    wall_start_(std::chrono::steady_clock::now()),
+    wall_start_(
+        std::chrono::
+            steady_clock::now()
+    ),
     p_(std::move(params)),
     api_(std::move(api)),
     stats_(stats),
@@ -80,29 +94,41 @@ Referee::Referee(
     pl1_(
         p_.p1_cfg.cmd,
         "P1",
-        p_.create_process(p_.p1_cfg.cmd)
+        p_.create_process(
+            p_.p1_cfg.cmd
+        )
     ),
     pl2_(
         p_.p2_cfg.cmd,
         "P2",
-        p_.create_process(p_.p2_cfg.cmd)
+        p_.create_process(
+            p_.p2_cfg.cmd
+        )
     ),
     board_(
         p_.config().board_size *
-        p_.config().board_size,
+            p_.config().board_size,
         0
     ),
-    time_p1_(p_.p1_cfg.timeout_game),
-    time_p2_(p_.p2_cfg.timeout_game)
+    time_p1_(
+        p_.p1_cfg.timeout_game
+    ),
+    time_p2_(
+        p_.p2_cfg.timeout_game
+    )
 {}
 
 Referee::~Referee() {
-    if (start_sent_ && !result_sent_) {
-        double result =
-            Sys::g_stop_flag ? -1.0 : 0.5;
-
+    if (
+        start_sent_ &&
+        !result_sent_
+    ) {
         try {
-            send_result_event(result);
+            send_result_event(
+                Sys::g_stop_flag
+                    ? -1.0
+                    : 0.5
+            );
         } catch (...) {
         }
     }
@@ -112,20 +138,28 @@ Referee::~Referee() {
 }
 
 Referee::Status Referee::step(
-    std::vector<Core::Point>& out_history
+    std::vector<
+        Core::Point
+    >& out_history
 ) {
     try {
-        if (state_ == State::UNINITIALIZED) {
-            initialize_game(out_history);
+        if (
+            state_ ==
+            State::UNINITIALIZED
+        ) {
+            initialize_game(
+                out_history
+            );
             return Status::RUNNING;
         }
 
-        if (play_turn(out_history)) {
-            return Status::FINISHED;
-        }
-
-        return Status::RUNNING;
-    } catch (const Core::PlayerError& error) {
+        return play_turn(out_history)
+            ? Status::FINISHED
+            : Status::RUNNING;
+    } catch (
+        const Core::PlayerError&
+            error
+    ) {
         Core::Logger::log(
             Core::Logger::Level::WARN,
             "Pair ",
@@ -140,25 +174,36 @@ Referee::Status Referee::step(
             current_player();
 
         record_crash(loser);
+
         finish(
-            loser == Core::PlayerColor::BLACK
+            loser ==
+                Core::PlayerColor::BLACK
                 ? 0.0
                 : 1.0
         );
 
-        if (p_.config().exit_on_crash) {
+        if (
+            p_.config()
+                .exit_on_crash
+        ) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to player error: ",
                 error.what()
             );
+
             Sys::g_stop_flag = 1;
             throw Core::MatchTerminated();
         }
 
         return Status::FINISHED;
-    } catch (const Core::MatchTerminated&) {
-        if (state_ == State::INITIALIZED) {
+    } catch (
+        const Core::MatchTerminated&
+    ) {
+        if (
+            state_ ==
+            State::INITIALIZED
+        ) {
             finish(-1.0);
         } else {
             pl1_.stop();
@@ -166,7 +211,10 @@ Referee::Status Referee::step(
         }
 
         throw;
-    } catch (const InitializationError& error) {
+    } catch (
+        const InitializationError&
+            error
+    ) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
             "Pair ",
@@ -178,20 +226,30 @@ Referee::Status Referee::step(
         );
 
         record_crash(error.player);
-        finish(loss_for_player(error.player));
+        finish(
+            loss_for_player(
+                error.player
+            )
+        );
 
-        if (p_.config().exit_on_crash) {
+        if (
+            p_.config()
+                .exit_on_crash
+        ) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to system error: ",
                 error.what()
             );
+
             Sys::g_stop_flag = 1;
             throw Core::MatchTerminated();
         }
 
         return Status::FINISHED;
-    } catch (const OpeningError& error) {
+    } catch (
+        const OpeningError& error
+    ) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
             "Pair ",
@@ -208,18 +266,24 @@ Referee::Status Referee::step(
 
         finish(-1.0);
 
-        if (p_.config().exit_on_crash) {
+        if (
+            p_.config()
+                .exit_on_crash
+        ) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to opening error: ",
                 error.what()
             );
+
             Sys::g_stop_flag = 1;
             throw Core::MatchTerminated();
         }
 
         return Status::FINISHED;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
             "Pair ",
@@ -234,18 +298,24 @@ Referee::Status Referee::step(
             current_player();
 
         record_crash(loser);
+
         finish(
-            loser == Core::PlayerColor::BLACK
+            loser ==
+                Core::PlayerColor::BLACK
                 ? 0.0
                 : 1.0
         );
 
-        if (p_.config().exit_on_crash) {
+        if (
+            p_.config()
+                .exit_on_crash
+        ) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
                 "STRICT MODE: Exiting due to system error: ",
                 error.what()
             );
+
             Sys::g_stop_flag = 1;
             throw Core::MatchTerminated();
         }
@@ -254,19 +324,28 @@ Referee::Status Referee::step(
     }
 }
 
-int Referee::get_last_mover_bot_id() const {
-    if (moves_ == 0) return 0;
-
-    bool black_played = moves_ % 2 != 0;
-
-    if (p_.leg == 0) {
-        return black_played ? 1 : 2;
+int Referee::
+get_last_mover_bot_id() const {
+    if (moves_ == 0) {
+        return 0;
     }
 
-    return black_played ? 2 : 1;
+    bool black_played =
+        moves_ % 2 != 0;
+
+    if (p_.leg == 0) {
+        return black_played
+            ? 1
+            : 2;
+    }
+
+    return black_played
+        ? 2
+        : 1;
 }
 
-Core::PlayerColor Referee::current_player() const {
+Core::PlayerColor
+Referee::current_player() const {
     return moves_ % 2 == 0
         ? Core::PlayerColor::BLACK
         : Core::PlayerColor::WHITE;
@@ -275,30 +354,45 @@ Core::PlayerColor Referee::current_player() const {
 int Referee::slot_for_color(
     Core::PlayerColor color
 ) const {
-    if (color == Core::PlayerColor::BLACK) {
-        return p_.leg == 0 ? 1 : 2;
+    if (
+        color ==
+        Core::PlayerColor::BLACK
+    ) {
+        return p_.leg == 0
+            ? 1
+            : 2;
     }
 
-    return p_.leg == 0 ? 2 : 1;
+    return p_.leg == 0
+        ? 2
+        : 1;
 }
 
 int Referee::slot_for_player(
     const Player* player
 ) const {
     if (player == &pl1_) {
-        return p_.leg == 0 ? 1 : 2;
+        return p_.leg == 0
+            ? 1
+            : 2;
     }
 
-    return p_.leg == 0 ? 2 : 1;
+    return p_.leg == 0
+        ? 2
+        : 1;
 }
 
 void Referee::record_crash(
     Core::PlayerColor loser
 ) {
-    stats_.add_crash(slot_for_color(loser));
+    stats_.add_crash(
+        slot_for_color(loser)
+    );
 }
 
-void Referee::record_crash(Player* player) {
+void Referee::record_crash(
+    Player* player
+) {
     stats_.add_crash(
         slot_for_player(player)
     );
@@ -307,36 +401,52 @@ void Referee::record_crash(Player* player) {
 double Referee::loss_for_player(
     const Player* player
 ) const {
-    return player == &pl1_ ? 0.0 : 1.0;
+    return player == &pl1_
+        ? 0.0
+        : 1.0;
 }
 
 void Referee::initialize_game(
-    std::vector<Core::Point>& out_history
+    std::vector<
+        Core::Point
+    >& out_history
 ) {
     state_ = State::INITIALIZED;
 
-    std::map<std::string, std::string>
-        environment;
+    std::map<
+        std::string,
+        std::string
+    > environment;
 
     if (p_.seed) {
-        environment["GOMOKU_SEED"] =
-            std::to_string(*p_.seed);
+        environment[
+            "GOMOKU_SEED"
+        ] = std::to_string(
+            *p_.seed
+        );
     }
 
-    long long memory1 = p_.p1_cfg.memory;
+    long long memory1 =
+        p_.p1_cfg.memory;
+    long long memory2 =
+        p_.p2_cfg.memory;
+
     if (
         memory1 > 0 &&
-        Core::is_rapfi_bot(p_.p1_cfg.cmd)
+        Core::is_rapfi_bot(
+            p_.p1_cfg.cmd
+        )
     ) {
         memory1 +=
             Core::Constants::
                 PROCESS_MEMORY_OVERHEAD;
     }
 
-    long long memory2 = p_.p2_cfg.memory;
     if (
         memory2 > 0 &&
-        Core::is_rapfi_bot(p_.p2_cfg.cmd)
+        Core::is_rapfi_bot(
+            p_.p2_cfg.cmd
+        )
     ) {
         memory2 +=
             Core::Constants::
@@ -351,14 +461,24 @@ void Referee::initialize_game(
 
     send_start_event();
 
-    if (!pl1_.start(memory1, environment)) {
+    if (
+        !pl1_.start(
+            memory1,
+            environment
+        )
+    ) {
         throw InitializationError(
             &pl1_,
             "P1 start failed"
         );
     }
 
-    if (!pl2_.start(memory2, environment)) {
+    if (
+        !pl2_.start(
+            memory2,
+            environment
+        )
+    ) {
         throw InitializationError(
             &pl2_,
             "P2 start failed"
@@ -367,9 +487,13 @@ void Referee::initialize_game(
 
     try {
         pl1_.meta();
-    } catch (const Core::MatchTerminated&) {
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         throw InitializationError(
             &pl1_,
             error.what()
@@ -378,9 +502,13 @@ void Referee::initialize_game(
 
     try {
         pl2_.meta();
-    } catch (const Core::MatchTerminated&) {
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         throw InitializationError(
             &pl2_,
             error.what()
@@ -393,14 +521,26 @@ void Referee::initialize_game(
         );
     }
 
-    pl1_.set_lenient(p_.p1_cfg.lenient);
-    pl2_.set_lenient(p_.p2_cfg.lenient);
+    pl1_.set_lenient(
+        p_.p1_cfg.lenient
+    );
+
+    pl2_.set_lenient(
+        p_.p2_cfg.lenient
+    );
 
     try {
-        init_player(pl1_, p_.p1_cfg);
-    } catch (const Core::MatchTerminated&) {
+        init_player(
+            pl1_,
+            p_.p1_cfg
+        );
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         throw InitializationError(
             &pl1_,
             error.what()
@@ -408,10 +548,17 @@ void Referee::initialize_game(
     }
 
     try {
-        init_player(pl2_, p_.p2_cfg);
-    } catch (const Core::MatchTerminated&) {
+        init_player(
+            pl2_,
+            p_.p2_cfg
+        );
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         throw InitializationError(
             &pl2_,
             error.what()
@@ -457,8 +604,12 @@ void Referee::init_player(
                 config.max_nodes
             )
         );
-        player.send("INFO timeout_turn 0");
-        player.send("INFO timeout_match 0");
+        player.send(
+            "INFO timeout_turn 0"
+        );
+        player.send(
+            "INFO timeout_match 0"
+        );
     } else {
         player.send(
             "INFO timeout_turn " +
@@ -476,15 +627,25 @@ void Referee::init_player(
 
     player.send(
         "INFO max_memory " +
-        std::to_string(config.memory)
+        std::to_string(
+            config.memory
+        )
     );
-    player.send("INFO game_type 1");
-    player.send("INFO rule 0");
-    player.send("INFO THREAD_NUM 1");
+    player.send(
+        "INFO game_type 1"
+    );
+    player.send(
+        "INFO rule 0"
+    );
+    player.send(
+        "INFO THREAD_NUM 1"
+    );
 }
 
 bool Referee::play_turn(
-    std::vector<Core::Point>& out_history
+    std::vector<
+        Core::Point
+    >& out_history
 ) {
     if (
         moves_ >=
@@ -499,24 +660,34 @@ bool Referee::play_turn(
         current_player();
 
     Player* current =
-        color == Core::PlayerColor::BLACK
+        color ==
+            Core::PlayerColor::BLACK
             ? &pl1_
             : &pl2_;
 
     int& time_bank =
-        color == Core::PlayerColor::BLACK
+        color ==
+            Core::PlayerColor::BLACK
             ? time_p1_
             : time_p2_;
 
-    int turn_limit =
-        color == Core::PlayerColor::BLACK
-            ? p_.p1_cfg.timeout_cutoff
-            : p_.p2_cfg.timeout_cutoff;
+    const int turn_limit =
+        std::max(
+            0,
+            color ==
+                Core::PlayerColor::BLACK
+                ? p_.p1_cfg
+                    .timeout_cutoff
+                : p_.p2_cfg
+                    .timeout_cutoff
+        );
 
     if (time_bank > 0) {
         current->send(
             "INFO time_left " +
-            std::to_string(time_bank)
+            std::to_string(
+                time_bank
+            )
         );
     }
 
@@ -525,38 +696,148 @@ bool Referee::play_turn(
             current->pid()
         );
 
-    send_turn_command(current);
+    auto thinking_start =
+        std::chrono::
+            steady_clock::now();
 
     long elapsed = 0;
+    long measured_wall = 0;
+    long measured_cpu = 0;
+    bool cpu_measured = false;
+    bool timing_recorded = false;
+
+    auto wall_elapsed = [&]() {
+        return static_cast<long>(
+            std::chrono::
+                duration_cast<
+                    std::chrono::
+                        milliseconds
+                >(
+                    std::chrono::
+                        steady_clock::now() -
+                    thinking_start
+                ).count()
+        );
+    };
+
+    auto record_timing = [&]() {
+        if (timing_recorded) {
+            return;
+        }
+
+        measured_wall =
+            std::max(
+                0L,
+                std::max(
+                    elapsed,
+                    wall_elapsed()
+                )
+            );
+
+        auto cpu_end =
+            Sys::CpuMonitor::get_times(
+                current->pid()
+            );
+
+        long cpu_delta =
+            cpu_end.total_ms() -
+            cpu_start.total_ms();
+
+        cpu_measured =
+            cpu_start.valid &&
+            cpu_end.valid &&
+            cpu_delta >= 0;
+
+        measured_cpu =
+            cpu_measured
+                ? cpu_delta
+                : 0;
+
+        if (
+            color ==
+            Core::PlayerColor::BLACK
+        ) {
+            p1_wall_ms_ +=
+                measured_wall;
+        } else {
+            p2_wall_ms_ +=
+                measured_wall;
+        }
+
+        stats_.add_timing(
+            slot_for_color(color),
+            measured_wall,
+            measured_cpu,
+            cpu_measured
+        );
+
+        timing_recorded = true;
+    };
+
     std::string response;
 
-    while (true) {
-        long local_elapsed = 0;
+    try {
+        send_turn_command(current);
 
-        response = current->read(
-            turn_limit,
-            local_elapsed
-        );
+        while (true) {
+            long used =
+                std::max(
+                    elapsed,
+                    wall_elapsed()
+                );
 
-        elapsed += local_elapsed;
+            if (used >= turn_limit) {
+                elapsed = used;
 
-        if (response != "OK") break;
+                throw Core::PlayerError(
+                    "Timeout"
+                );
+            }
 
-        turn_limit = std::max(
-            Core::Constants::
-                MIN_TURN_TIMEOUT_MS,
-            turn_limit -
-                static_cast<int>(
+            long local_elapsed = 0;
+            int remaining =
+                turn_limit -
+                static_cast<int>(used);
+
+            try {
+                response =
+                    current->read(
+                        remaining,
+                        local_elapsed
+                    );
+            } catch (...) {
+                elapsed +=
+                    std::max(
+                        0L,
+                        local_elapsed
+                    );
+                throw;
+            }
+
+            elapsed +=
+                std::max(
+                    0L,
                     local_elapsed
-                )
-        );
+                );
+
+            if (response != "OK") {
+                break;
+            }
+        }
+    } catch (...) {
+        record_timing();
+        throw;
     }
+
+    record_timing();
 
     if (
         time_bank > 0 &&
         (
             time_bank -=
-                static_cast<int>(elapsed)
+                static_cast<int>(
+                    measured_wall
+                )
         ) < 0
     ) {
         throw Core::PlayerError(
@@ -565,56 +846,44 @@ bool Referee::play_turn(
     }
 
     Core::Point move =
-        parse_and_validate_move(response);
+        parse_and_validate_move(
+            response
+        );
 
     apply_move(move);
     out_history = hist_;
 
-    auto cpu_end =
-        Sys::CpuMonitor::get_times(
-            current->pid()
-        );
-
-    long cpu_delta =
-        (
-            cpu_end.user_ms -
-            cpu_start.user_ms
-        ) +
-        (
-            cpu_end.sys_ms -
-            cpu_start.sys_ms
-        );
-
-    if (color == Core::PlayerColor::BLACK) {
-        p1_cpu_ms_ += cpu_delta;
-        p1_wall_ms_ += elapsed;
-    } else {
-        p2_cpu_ms_ += cpu_delta;
-        p2_wall_ms_ += elapsed;
-    }
-
-    if (p_.context) {
-        if (slot_for_color(color) == 1) {
-            stats_.p1_total_time_ms += elapsed;
-        } else {
-            stats_.p2_total_time_ms += elapsed;
-        }
-    }
-
     if (p_.config().debug) {
-        double load =
-            Sys::CpuMonitor::calculate_load(
-                cpu_start,
-                cpu_end,
-                elapsed
-            );
+        std::string cpu_text =
+            cpu_measured
+                ? std::to_string(
+                    measured_cpu
+                ) + "ms"
+                : "-";
+
+        std::string load_text =
+            cpu_measured &&
+            measured_wall > 0
+                ? std::to_string(
+                    static_cast<int>(
+                        static_cast<double>(
+                            measured_cpu
+                        ) *
+                        100.0 /
+                        static_cast<double>(
+                            measured_wall
+                        )
+                    )
+                ) + "%"
+                : "-";
 
         Core::Logger::log(
             Core::Logger::Level::DEBUG,
             "Move ",
             moves_,
             " (",
-            color == Core::PlayerColor::BLACK
+            color ==
+                Core::PlayerColor::BLACK
                 ? "P1"
                 : "P2",
             "): ",
@@ -622,12 +891,11 @@ bool Referee::play_turn(
             ",",
             move.y,
             " | Wall: ",
-            elapsed,
+            measured_wall,
             "ms | CPU: ",
-            cpu_delta,
-            "ms | Load: ",
-            static_cast<int>(load),
-            "%"
+            cpu_text,
+            " | Load: ",
+            load_text
         );
     }
 
@@ -645,10 +913,12 @@ bool Referee::play_turn(
         )
     ) {
         finish(
-            color == Core::PlayerColor::BLACK
+            color ==
+                Core::PlayerColor::BLACK
                 ? 1.0
                 : 0.0
         );
+
         return true;
     }
 
@@ -663,7 +933,7 @@ void Referee::apply_move(
 
     board_[
         move.y *
-        p_.config().board_size +
+            p_.config().board_size +
         move.x
     ] = static_cast<int>(color);
 
@@ -676,25 +946,35 @@ void Referee::apply_move(
     );
 }
 
-void Referee::finish(double result) {
+void Referee::finish(
+    double result
+) {
     result_sent_ = true;
     pl1_.stop();
     pl2_.stop();
 
     long wall_ms =
-        std::chrono::duration_cast<
-            std::chrono::milliseconds
-        >(
-            std::chrono::steady_clock::now() -
-            wall_start_
-        ).count();
+        std::chrono::
+            duration_cast<
+                std::chrono::milliseconds
+            >(
+                std::chrono::
+                    steady_clock::now() -
+                wall_start_
+            ).count();
 
-    bool slot1_black = p_.leg == 0;
+    bool slot1_black =
+        p_.leg == 0;
 
     Player& slot1 =
-        slot1_black ? pl1_ : pl2_;
+        slot1_black
+            ? pl1_
+            : pl2_;
+
     Player& slot2 =
-        slot1_black ? pl2_ : pl1_;
+        slot1_black
+            ? pl2_
+            : pl1_;
 
     double score1 =
         result < 0
@@ -718,8 +998,11 @@ void Referee::finish(double result) {
             ? p2_wall_ms_
             : p1_wall_ms_;
 
-    long memory1 = slot1.peak_mem();
-    long memory2 = slot2.peak_mem();
+    long memory1 =
+        slot1.peak_mem();
+
+    long memory2 =
+        slot2.peak_mem();
 
     auto format_result = [](
         double score,
@@ -727,8 +1010,6 @@ void Referee::finish(double result) {
         long memory_kb
     ) {
         std::stringstream text;
-        double memory_mb =
-            memory_kb / 1024.0;
 
         if (score < 0) {
             text << "(crash)";
@@ -750,94 +1031,119 @@ void Referee::finish(double result) {
             << time / 1000.0
             << "s, "
             << std::setprecision(2)
-            << memory_mb
+            << memory_kb / 1024.0
             << "MB)";
 
         return text.str();
     };
 
-    {
-        std::lock_guard<std::mutex> lock(
-            stats_.mtx
-        );
-
-        std::stringstream text;
-
-        text
-            << "Game "
-            << p_.pair
-            << "/"
-            << p_.config().max_pairs
-            << " | "
-            << slot1.name()
-            << " "
-            << slot1.version()
-            << " "
-            << format_result(
-                score1,
-                time1,
-                memory1
-            )
-            << " vs "
-            << slot2.name()
-            << " "
-            << slot2.version()
-            << " "
-            << format_result(
-                score2,
-                time2,
-                memory2
-            )
-            << " | Elo: "
-            << stats_.p1_elo
-            << "-"
-            << stats_.p2_elo
-            << " | P1 -> +"
-            << stats_.p1_pair_wins
-            << " -"
-            << stats_.p1_pair_losses
-            << " ="
-            << stats_.p1_pair_draws;
-
-        if (
-            stats_.p1_moves_analyzed > 0 ||
-            stats_.p2_moves_analyzed > 0
-        ) {
-            text
-                << " | CMA:"
-                << std::fixed
-                << std::setprecision(1)
-                << stats_.get_p1_cma()
-                << "% vs "
-                << stats_.get_p2_cma()
-                << "%";
-        }
-
-        text
-            << " | Z:"
-            << std::fixed
-            << std::setprecision(2)
-            << stats_.get_p1_z()
-            << " ERF:"
-            << std::setprecision(1)
-            << stats_.get_p1_erf()
-            << "%";
-
-        Core::Logger::log(
-            Core::Logger::Level::INFO,
-            text.str()
-        );
-    }
-
-    send_result_event(result, wall_ms);
+    send_result_event(
+        result,
+        wall_ms
+    );
 
     cb_(
         p_.pair,
         p_.leg,
         result,
-        wall_ms,
-        p1_cpu_ms_,
-        p2_cpu_ms_
+        wall_ms
+    );
+
+    std::lock_guard<std::mutex> lock(
+        stats_.mtx
+    );
+
+    std::stringstream text;
+
+    text
+        << "Game "
+        << p_.pair
+        << "/"
+        << p_.config().max_pairs
+        << " | "
+        << slot1.name()
+        << " "
+        << slot1.version()
+        << " "
+        << format_result(
+            score1,
+            time1,
+            memory1
+        )
+        << " vs "
+        << slot2.name()
+        << " "
+        << slot2.version()
+        << " "
+        << format_result(
+            score2,
+            time2,
+            memory2
+        )
+        << " | Elo: "
+        << stats_.p1_elo
+        << "-"
+        << stats_.p2_elo
+        << " | P1 -> +"
+        << stats_.p1_pair_wins
+        << " -"
+        << stats_.p1_pair_losses
+        << " ="
+        << stats_.p1_pair_draws;
+
+    auto append_percent = [&text](
+        const std::optional<double>& value
+    ) {
+        if (value) {
+            text
+                << std::fixed
+                << std::setprecision(1)
+                << *value
+                << "%";
+        } else {
+            text << "-";
+        }
+    };
+
+    auto p1_cma =
+        stats_.get_p1_cma_optional();
+
+    auto p2_cma =
+        stats_.get_p2_cma_optional();
+
+    if (p1_cma || p2_cma) {
+        text << " | CMA: ";
+        append_percent(p1_cma);
+        text << " vs ";
+        append_percent(p2_cma);
+    }
+
+    auto p1_blunder =
+        stats_.get_p1_blunder_optional();
+
+    auto p2_blunder =
+        stats_.get_p2_blunder_optional();
+
+    if (p1_blunder || p2_blunder) {
+        text << " | Bln: ";
+        append_percent(p1_blunder);
+        text << " vs ";
+        append_percent(p2_blunder);
+    }
+
+    text
+        << " | Z:"
+        << std::fixed
+        << std::setprecision(2)
+        << stats_.get_p1_z()
+        << " ERF:"
+        << std::setprecision(1)
+        << stats_.get_p1_erf()
+        << "%";
+
+    Core::Logger::log(
+        Core::Logger::Level::INFO,
+        text.str()
     );
 }
 
@@ -853,7 +1159,9 @@ void Referee::send_turn_command(
             1
     ) {
         if (moves_ > 0) {
-            send_board_state(current);
+            send_board_state(
+                current
+            );
         } else {
             current->send("BEGIN");
         }
@@ -863,9 +1171,13 @@ void Referee::send_turn_command(
 
     current->send(
         "TURN " +
-        std::to_string(hist_.back().x) +
+        std::to_string(
+            hist_.back().x
+        ) +
         "," +
-        std::to_string(hist_.back().y)
+        std::to_string(
+            hist_.back().y
+        )
     );
 }
 
@@ -875,13 +1187,30 @@ void Referee::send_board_state(
     std::stringstream board;
     board << "BOARD\n";
 
-    for (size_t i = 0; i < hist_.size(); ++i) {
+    bool receiver_is_black =
+        current == &pl1_;
+
+    for (
+        size_t index = 0;
+        index < hist_.size();
+        ++index
+    ) {
+        int absolute_color =
+            index % 2 == 0
+                ? 1
+                : 2;
+
+        int relative_color =
+            receiver_is_black
+                ? absolute_color
+                : 3 - absolute_color;
+
         board
-            << hist_[i].x
+            << hist_[index].x
             << ","
-            << hist_[i].y
+            << hist_[index].y
             << ","
-            << (i % 2 == 0 ? 1 : 2)
+            << relative_color
             << "\n";
     }
 
@@ -889,14 +1218,17 @@ void Referee::send_board_state(
     current->send(board.str());
 }
 
-Core::Point Referee::parse_and_validate_move(
+Core::Point
+Referee::parse_and_validate_move(
     const std::string& response
 ) {
     int x = 0;
     int y = 0;
     char separator = 0;
     std::string extra;
-    std::stringstream parser(response);
+    std::stringstream parser(
+        response
+    );
 
     if (
         !(parser >> x >> separator >> y) ||
@@ -904,7 +1236,8 @@ Core::Point Referee::parse_and_validate_move(
         parser >> extra
     ) {
         throw Core::PlayerError(
-            "Invalid move: " + response
+            "Invalid move: " +
+            response
         );
     }
 
@@ -914,41 +1247,64 @@ Core::Point Referee::parse_and_validate_move(
         y < 0 ||
         y >= p_.config().board_size
     ) {
-        throw Core::PlayerError("OOB");
+        throw Core::PlayerError(
+            "OOB"
+        );
     }
 
     if (
         board_[
             y *
-            p_.config().board_size +
+                p_.config()
+                    .board_size +
             x
         ]
     ) {
-        throw Core::PlayerError("Occupied");
+        throw Core::PlayerError(
+            "Occupied"
+        );
     }
 
-    return {x, y};
+    return {
+        x,
+        y
+    };
 }
 
-void Referee::send_run_start_event_if_needed(
-    std::shared_ptr<App::RunContext> context
+void Referee::
+send_run_start_event_if_needed(
+    std::shared_ptr<
+        App::RunContext
+    > context
 ) {
     std::lock_guard<std::mutex> lock(
         context->name_mtx
     );
 
-    if (context->names_set) return;
+    if (context->names_set) {
+        return;
+    }
+
     context->names_set = true;
 
     Player& slot1 =
-        p_.leg == 0 ? pl1_ : pl2_;
-    Player& slot2 =
-        p_.leg == 0 ? pl2_ : pl1_;
+        p_.leg == 0
+            ? pl1_
+            : pl2_;
 
-    context->p1_name = slot1.name();
-    context->p1_version = slot1.version();
-    context->p2_name = slot2.name();
-    context->p2_version = slot2.version();
+    Player& slot2 =
+        p_.leg == 0
+            ? pl2_
+            : pl1_;
+
+    context->p1_name =
+        slot1.name();
+    context->p1_version =
+        slot1.version();
+    context->p2_name =
+        slot2.name();
+    context->p2_version =
+        slot2.version();
 
     if (api_) {
         api_->enqueue(
@@ -961,13 +1317,21 @@ void Referee::send_run_start_event_if_needed(
     }
 }
 
-void Referee::update_run_metadata_event(
-    std::shared_ptr<App::RunContext> context
+void Referee::
+update_run_metadata_event(
+    std::shared_ptr<
+        App::RunContext
+    > context
 ) {
     Player& slot1 =
-        p_.leg == 0 ? pl1_ : pl2_;
+        p_.leg == 0
+            ? pl1_
+            : pl2_;
+
     Player& slot2 =
-        p_.leg == 0 ? pl2_ : pl1_;
+        p_.leg == 0
+            ? pl2_
+            : pl1_;
 
     {
         std::lock_guard<std::mutex> lock(
@@ -975,20 +1339,26 @@ void Referee::update_run_metadata_event(
         );
 
         if (
-            context->p1_name == slot1.name() &&
+            context->p1_name ==
+                slot1.name() &&
             context->p1_version ==
                 slot1.version() &&
-            context->p2_name == slot2.name() &&
+            context->p2_name ==
+                slot2.name() &&
             context->p2_version ==
                 slot2.version()
         ) {
             return;
         }
 
-        context->p1_name = slot1.name();
-        context->p1_version = slot1.version();
-        context->p2_name = slot2.name();
-        context->p2_version = slot2.version();
+        context->p1_name =
+            slot1.name();
+        context->p1_version =
+            slot1.version();
+        context->p2_name =
+            slot2.name();
+        context->p2_version =
+            slot2.version();
     }
 
     if (api_) {
@@ -1003,8 +1373,13 @@ void Referee::update_run_metadata_event(
 }
 
 void Referee::apply_opening_moves() {
-    for (const auto& move : p_.opening) {
-        validate_opening_move(move);
+    for (
+        const auto& move :
+        p_.opening
+    ) {
+        validate_opening_move(
+            move
+        );
 
         Core::PlayerColor color =
             moves_ % 2 == 0
@@ -1013,9 +1388,12 @@ void Referee::apply_opening_moves() {
 
         board_[
             move.y *
-            p_.config().board_size +
+                p_.config()
+                    .board_size +
             move.x
-        ] = static_cast<int>(color);
+        ] = static_cast<int>(
+            color
+        );
 
         hist_.push_back(move);
         moves_++;
@@ -1032,9 +1410,11 @@ void Referee::validate_opening_move(
 ) {
     if (
         move.x < 0 ||
-        move.x >= p_.config().board_size ||
+        move.x >=
+            p_.config().board_size ||
         move.y < 0 ||
-        move.y >= p_.config().board_size
+        move.y >=
+            p_.config().board_size
     ) {
         throw OpeningError(
             "OOB Opening"
@@ -1044,7 +1424,8 @@ void Referee::validate_opening_move(
     if (
         board_[
             move.y *
-            p_.config().board_size +
+                p_.config()
+                    .board_size +
             move.x
         ]
     ) {
@@ -1055,16 +1436,30 @@ void Referee::validate_opening_move(
 }
 
 void Referee::send_start_event() {
-    if (!api_) return;
+    if (!api_) {
+        return;
+    }
 
-    auto event = create_event("start");
+    auto event =
+        create_event("start");
+
     event.black_slot =
-        p_.leg == 0 ? 1 : 2;
-    event.white_slot =
-        p_.leg == 0 ? 2 : 1;
-    event.op_len = get_opening_size();
+        p_.leg == 0
+            ? 1
+            : 2;
 
-    api_->enqueue(std::move(event));
+    event.white_slot =
+        p_.leg == 0
+            ? 2
+            : 1;
+
+    event.op_len =
+        get_opening_size();
+
+    api_->enqueue(
+        std::move(event)
+    );
+
     start_sent_ = true;
 }
 
@@ -1072,37 +1467,61 @@ void Referee::send_move_event(
     const Core::Point& move,
     int color
 ) {
-    if (!api_) return;
+    if (!api_) {
+        return;
+    }
 
-    auto event = create_event("move");
+    auto event =
+        create_event("move");
+
     event.x = move.x;
     event.y = move.y;
     event.c = color;
 
-    api_->enqueue(std::move(event));
+    api_->enqueue(
+        std::move(event)
+    );
 }
 
 void Referee::send_result_event(
     double result,
     long duration
 ) {
-    if (!api_ || !start_sent_) return;
+    if (
+        !api_ ||
+        !start_sent_
+    ) {
+        return;
+    }
 
     std::stringstream moves;
 
-    for (size_t i = 0; i < hist_.size(); ++i) {
-        if (i > 0) moves << ";";
+    for (
+        size_t index = 0;
+        index < hist_.size();
+        ++index
+    ) {
+        if (index > 0) {
+            moves << ";";
+        }
 
         moves
-            << hist_[i].x
+            << hist_[index].x
             << ","
-            << hist_[i].y
+            << hist_[index].y
             << ","
-            << (i % 2 == 0 ? 1 : 2);
+            << (
+                index % 2 == 0
+                    ? 1
+                    : 2
+            );
     }
 
-    auto event = create_event("result");
+    auto event =
+        create_event("result");
+
     event.moves = moves.str();
+
     event.winner =
         result == 1.0
             ? 1
@@ -1111,13 +1530,19 @@ void Referee::send_result_event(
                 : result == -1.0
                     ? 4
                     : 3;
-    event.op_len = get_opening_size();
+
+    event.op_len =
+        get_opening_size();
+
     event.duration = duration;
 
-    api_->enqueue(std::move(event));
+    api_->enqueue(
+        std::move(event)
+    );
 }
 
-Net::ApiManager::Event Referee::create_event(
+Net::ApiManager::Event
+Referee::create_event(
     const std::string& type
 ) {
     Net::ApiManager::Event event;
@@ -1158,7 +1583,8 @@ void Referee::print_board() {
             int color =
                 board_[
                     y *
-                    p_.config().board_size +
+                        p_.config()
+                            .board_size +
                     x
                 ];
 

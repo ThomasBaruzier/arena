@@ -3,6 +3,8 @@
 #include "../core/logger.h"
 #include "../core/utils.h"
 #include "../sys/signals.h"
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <regex>
 #include <sstream>
@@ -15,7 +17,8 @@ std::optional<double> parse_probability(
 ) {
     try {
         size_t consumed = 0;
-        double value = std::stod(text, &consumed);
+        double value =
+            std::stod(text, &consumed);
 
         if (
             consumed != text.size() ||
@@ -32,7 +35,9 @@ std::optional<double> parse_probability(
     }
 }
 
-bool is_ok_response(const std::string& response) {
+bool is_ok_response(
+    const std::string& response
+) {
     return response == "OK" ||
         response.rfind("OK ", 0) == 0;
 }
@@ -57,18 +62,41 @@ Evaluator::Evaluator(
     max_nodes_(max_nodes)
 {
     if (!process_) {
-        process_ = std::make_unique<Sys::Process>(cmd_);
+        process_ =
+            std::make_unique<
+                Sys::Process
+            >(cmd_);
     }
+}
+
+bool Evaluator::fail(
+    const std::string& message
+) {
+    process_->terminate();
+
+    Core::Logger::log(
+        Core::Logger::Level::ERROR,
+        message
+    );
+
+    if (exit_on_crash_) {
+        Core::Logger::log(
+            Core::Logger::Level::ERROR,
+            "STRICT MODE: Exiting due to evaluator failure"
+        );
+        Sys::g_stop_flag = 1;
+        throw Core::MatchTerminated();
+    }
+
+    return false;
 }
 
 bool Evaluator::start() {
     try {
         if (!process_->start(0)) {
-            Core::Logger::log(
-                Core::Logger::Level::ERROR,
+            return fail(
                 "Evaluator: failed to start process"
             );
-            return false;
         }
 
         if (
@@ -77,60 +105,68 @@ bool Evaluator::start() {
                 std::to_string(board_size_)
             )
         ) {
-            process_->terminate();
-            return false;
+            return fail(
+                "Evaluator: START write failed"
+            );
         }
 
         long elapsed = 0;
         auto response =
-            process_->read_line(cutoff_, &elapsed);
+            process_->read_line(
+                cutoff_,
+                &elapsed
+            );
 
         if (
             !response ||
             !is_ok_response(*response)
         ) {
-            Core::Logger::log(
-                Core::Logger::Level::ERROR,
-                "Evaluator: START failed, got: ",
-                response.value_or("(timeout)")
+            return fail(
+                "Evaluator: START failed, got: " +
+                response.value_or(
+                    "(timeout)"
+                )
             );
-            process_->terminate();
-            return false;
         }
 
         if (
-            !send_cmd("INFO timeout_turn 0") ||
-            !send_cmd("INFO timeout_match 0") ||
+            !send_cmd(
+                "INFO timeout_turn 0"
+            ) ||
+            !send_cmd(
+                "INFO timeout_match 0"
+            ) ||
             !send_cmd(
                 "INFO THREAD_NUM " +
                 std::to_string(
-                    Core::Constants::PROTOCOL_THREAD_NUM
+                    Core::Constants::
+                        PROTOCOL_THREAD_NUM
                 )
             ) ||
             !send_cmd(
                 "INFO MAX_NODE " +
-                std::to_string(max_nodes_)
+                std::to_string(
+                    max_nodes_
+                )
             )
         ) {
-            Core::Logger::log(
-                Core::Logger::Level::ERROR,
+            return fail(
                 "Evaluator: initialization write failed"
             );
-            process_->terminate();
-            return false;
         }
 
         return true;
-    } catch (const Core::MatchTerminated&) {
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
-        Core::Logger::log(
-            Core::Logger::Level::ERROR,
-            "Evaluator: startup failed: ",
-            error.what()
+    } catch (
+        const std::exception& error
+    ) {
+        return fail(
+            "Evaluator: startup failed: " +
+            std::string(error.what())
         );
-        process_->terminate();
-        return false;
     }
 }
 
@@ -139,8 +175,12 @@ bool Evaluator::restart() {
     return start();
 }
 
-bool Evaluator::set_max_nodes(uint64_t nodes) {
-    if (nodes == max_nodes_) return true;
+bool Evaluator::set_max_nodes(
+    uint64_t nodes
+) {
+    if (nodes == max_nodes_) {
+        return true;
+    }
 
     if (
         !send_cmd(
@@ -148,26 +188,39 @@ bool Evaluator::set_max_nodes(uint64_t nodes) {
             std::to_string(nodes)
         )
     ) {
-        return false;
+        return fail(
+            "Evaluator: MAX_NODE write failed"
+        );
     }
 
     max_nodes_ = nodes;
     return true;
 }
 
-std::optional<Stats::EvalMetrics> Evaluator::eval(
-    const std::vector<Core::Point>& moves
+std::optional<Stats::EvalMetrics>
+Evaluator::eval(
+    const std::vector<
+        Core::Point
+    >& moves
 ) {
-    if (moves.empty()) return std::nullopt;
+    if (moves.empty()) {
+        return std::nullopt;
+    }
 
     try {
-        if (!send_board(moves, moves.size() - 1)) {
+        if (
+            !send_board(
+                moves,
+                moves.size() - 1
+            )
+        ) {
             throw std::runtime_error(
                 "failed to send board"
             );
         }
 
-        const auto& last = moves.back();
+        const auto& last =
+            moves.back();
 
         if (
             !send_cmd(
@@ -182,7 +235,8 @@ std::optional<Stats::EvalMetrics> Evaluator::eval(
             );
         }
 
-        auto result = parse_eval_response();
+        auto result =
+            parse_eval_response();
 
         if (!result) {
             throw std::runtime_error(
@@ -191,9 +245,13 @@ std::optional<Stats::EvalMetrics> Evaluator::eval(
         }
 
         return result;
-    } catch (const Core::MatchTerminated&) {
+    } catch (
+        const Core::MatchTerminated&
+    ) {
         throw;
-    } catch (const std::exception& error) {
+    } catch (
+        const std::exception& error
+    ) {
         Core::Logger::log(
             Core::Logger::Level::WARN,
             "Evaluator failed on move ",
@@ -232,7 +290,9 @@ bool Evaluator::send_cmd(
             "-> EVAL (",
             command.size(),
             "B): ",
-            Core::Utils::truncate(command)
+            Core::Utils::truncate(
+                command
+            )
         );
     }
 
@@ -240,20 +300,36 @@ bool Evaluator::send_cmd(
 }
 
 bool Evaluator::send_board(
-    const std::vector<Core::Point>& moves,
+    const std::vector<
+        Core::Point
+    >& moves,
     size_t count
 ) {
-    if (!send_cmd("YXBOARD")) return false;
+    if (!send_cmd("YXBOARD")) {
+        return false;
+    }
 
-    for (size_t i = 0; i < count; ++i) {
+    for (
+        size_t index = 0;
+        index < count;
+        ++index
+    ) {
         std::stringstream line;
-        line << moves[i].x
-             << ","
-             << moves[i].y
-             << ","
-             << ((i % 2 == 0) ? 1 : 2);
 
-        if (!send_cmd(line.str())) return false;
+        line
+            << moves[index].x
+            << ","
+            << moves[index].y
+            << ","
+            << (
+                index % 2 == 0
+                    ? 1
+                    : 2
+            );
+
+        if (!send_cmd(line.str())) {
+            return false;
+        }
     }
 
     return send_cmd("DONE");
@@ -265,35 +341,90 @@ Evaluator::parse_eval_response() {
         R"(^\s*EVAL_DATA\s+(\S+)\s+(\S+)\s+(\S+)\s*$)"
     );
 
-    while (
+    auto deadline =
+        std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(
+            std::max(1, cutoff_)
+        );
+
+    while (true) {
+        auto now =
+            std::chrono::steady_clock::now();
+
+        if (now >= deadline) {
+            return std::nullopt;
+        }
+
+        long remaining =
+            std::chrono::duration_cast<
+                std::chrono::milliseconds
+            >(
+                deadline - now
+            ).count();
+
+        long elapsed = 0;
+
         auto line =
-            process_->read_line(cutoff_, nullptr)
-    ) {
+            process_->read_line(
+                static_cast<int>(
+                    std::max(1L, remaining)
+                ),
+                &elapsed
+            );
+
+        if (!line) {
+            return std::nullopt;
+        }
+
         if (Core::Logger::is_debug()) {
             Core::Logger::log(
                 Core::Logger::Level::DEBUG,
                 "<- EVAL (",
                 line->size(),
                 "B): ",
-                Core::Utils::truncate(*line)
+                Core::Utils::truncate(
+                    *line
+                )
             );
         }
 
         std::smatch match;
 
-        if (!std::regex_match(*line, match, pattern)) {
-            if (line->find("EVAL_DATA") != std::string::npos) {
+        if (
+            !std::regex_match(
+                *line,
+                match,
+                pattern
+            )
+        ) {
+            if (
+                line->find("EVAL_DATA") !=
+                std::string::npos
+            ) {
                 return std::nullopt;
             }
 
             continue;
         }
 
-        auto best = parse_probability(match[1].str());
-        auto second = parse_probability(match[2].str());
-        auto played = parse_probability(match[3].str());
+        auto best =
+            parse_probability(
+                match[1].str()
+            );
+        auto second =
+            parse_probability(
+                match[2].str()
+            );
+        auto played =
+            parse_probability(
+                match[3].str()
+            );
 
-        if (!best || !second || !played) {
+        if (
+            !best ||
+            !second ||
+            !played
+        ) {
             return std::nullopt;
         }
 
@@ -303,8 +434,6 @@ Evaluator::parse_eval_response() {
             *played
         };
     }
-
-    return std::nullopt;
 }
 
 }

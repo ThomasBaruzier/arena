@@ -1,71 +1,192 @@
 #include "cpu_monitor.h"
-#include <cstdio>
-#include <cstring>
-#include <cstdlib>
-#include <unistd.h>
 #include "../core/constants.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
 
 namespace Arena::Sys {
 
-    CpuMonitor::Times CpuMonitor::get_times(pid_t pid) {
-        if (pid <= 0) return {0, 0};
-
-        char path[Core::Constants::PATH_BUFFER_SIZE];
-        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-
-        FILE* f = fopen(path, "r");
-        if (!f) return {0, 0};
-
-        char buf[Core::Constants::PROC_STAT_BUFFER_SIZE];
-        if (!fgets(buf, sizeof(buf), f)) {
-            fclose(f);
-            return {0, 0};
-        }
-        fclose(f);
-
-        char* p = strrchr(buf, ')');
-        if (!p) return {0, 0};
-        p++;
-
-        while (*p == ' ') p++;
-        if (*p) p++;
-
-        unsigned long utime = 0, stime = 0;
-        int field = Core::Constants::PROC_STAT_FIELD_COUNT_MIN;
-
-        while (*p && field <= Core::Constants::PROC_STAT_FIELD_COUNT_MAX) {
-            while (*p == ' ') p++;
-            if (!*p) break;
-
-            char* next_p;
-            unsigned long val = strtoul(p, &next_p, 10);
-            if (p == next_p) break;
-            p = next_p;
-
-            if (field == Core::Constants::PROC_UTIME_FIELD)
-                utime = val;
-            else if (field == Core::Constants::PROC_STIME_FIELD)
-                stime = val;
-
-            field++;
-        }
-
-        static long clk_tck = sysconf(_SC_CLK_TCK);
-        if (clk_tck <= 0)
-            clk_tck = Core::Constants::DEFAULT_CLK_TCK;
-
-        return {
-            (long)(utime * 1000 / clk_tck),
-            (long)(stime * 1000 / clk_tck)
-        };
+CpuMonitor::Times CpuMonitor::get_times(
+    pid_t pid
+) {
+    if (pid <= 0) {
+        return {};
     }
 
-    double CpuMonitor::calculate_load(
-        const Times& start, const Times& end, long wall_ms)
-    {
-        if (wall_ms <= 0) return 0.0;
-        long cpu_delta = (end.user_ms - start.user_ms) +
-            (end.sys_ms - start.sys_ms);
-        return (double)cpu_delta * 100.0 / static_cast<double>(wall_ms);
+    char path[
+        Core::Constants::PATH_BUFFER_SIZE
+    ];
+
+    std::snprintf(
+        path,
+        sizeof(path),
+        "/proc/%d/stat",
+        pid
+    );
+
+    FILE* file = std::fopen(path, "r");
+
+    if (!file) {
+        return {};
     }
+
+    char buffer[
+        Core::Constants::PROC_STAT_BUFFER_SIZE
+    ];
+
+    if (
+        !std::fgets(
+            buffer,
+            sizeof(buffer),
+            file
+        )
+    ) {
+        std::fclose(file);
+        return {};
+    }
+
+    std::fclose(file);
+
+    char* cursor =
+        std::strrchr(buffer, ')');
+
+    if (!cursor) {
+        return {};
+    }
+
+    ++cursor;
+
+    while (*cursor == ' ') {
+        ++cursor;
+    }
+
+    if (!*cursor) {
+        return {};
+    }
+
+    ++cursor;
+
+    unsigned long user_ticks = 0;
+    unsigned long system_ticks = 0;
+    bool have_user = false;
+    bool have_system = false;
+    int field =
+        Core::Constants::
+            PROC_STAT_FIELD_COUNT_MIN;
+
+    while (
+        *cursor &&
+        field <=
+            Core::Constants::
+                PROC_STAT_FIELD_COUNT_MAX
+    ) {
+        while (*cursor == ' ') {
+            ++cursor;
+        }
+
+        if (!*cursor) {
+            break;
+        }
+
+        char* next = nullptr;
+        long long value =
+            std::strtoll(
+                cursor,
+                &next,
+                10
+            );
+
+        if (next == cursor) {
+            break;
+        }
+
+        cursor = next;
+
+        if (
+            field ==
+            Core::Constants::
+                PROC_UTIME_FIELD
+        ) {
+            if (value < 0) {
+                return {};
+            }
+
+            user_ticks =
+                static_cast<unsigned long>(
+                    value
+                );
+            have_user = true;
+        } else if (
+            field ==
+            Core::Constants::
+                PROC_STIME_FIELD
+        ) {
+            if (value < 0) {
+                return {};
+            }
+
+            system_ticks =
+                static_cast<unsigned long>(
+                    value
+                );
+            have_system = true;
+        }
+
+        ++field;
+    }
+
+    if (!have_user || !have_system) {
+        return {};
+    }
+
+    static long clock_ticks =
+        sysconf(_SC_CLK_TCK);
+
+    if (clock_ticks <= 0) {
+        clock_ticks =
+            Core::Constants::
+                DEFAULT_CLK_TCK;
+    }
+
+    return {
+        static_cast<long>(
+            user_ticks * 1000 /
+            clock_ticks
+        ),
+        static_cast<long>(
+            system_ticks * 1000 /
+            clock_ticks
+        ),
+        true
+    };
+}
+
+double CpuMonitor::calculate_load(
+    const Times& start,
+    const Times& end,
+    long wall_ms
+) {
+    if (
+        !start.valid ||
+        !end.valid ||
+        wall_ms <= 0
+    ) {
+        return 0.0;
+    }
+
+    long cpu_delta =
+        end.total_ms() -
+        start.total_ms();
+
+    if (cpu_delta < 0) {
+        return 0.0;
+    }
+
+    return
+        static_cast<double>(cpu_delta) *
+        100.0 /
+        static_cast<double>(wall_ms);
+}
+
 }

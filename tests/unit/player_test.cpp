@@ -3,97 +3,331 @@
 
 using namespace Arena;
 
-class PlayerTest : public ::testing::Test {
+class PlayerTest :
+    public ::testing::Test {
 protected:
-    std::unique_ptr<Game::Player> player;
+    std::unique_ptr<
+        Game::Player
+    > player;
+
     void SetUp() override {
-        player = std::make_unique<Game::Player>("dummy", "P1");
+        player =
+            std::make_unique<
+                Game::Player
+            >(
+                "dummy",
+                "P1"
+            );
     }
 };
 
 TEST_F(PlayerTest, Extraction) {
-    std::string about = "name=\"Bot\" version=\"1.0\"";
+    std::string about =
+        "name=\"Bot\" version=\"1.0\"";
+
     player->extract_name(about);
     player->extract_version(about);
-    EXPECT_EQ(player->name(), "Bot");
-    EXPECT_EQ(player->version(), "1.0");
+
+    EXPECT_EQ(
+        player->name(),
+        "Bot"
+    );
+    EXPECT_EQ(
+        player->version(),
+        "1.0"
+    );
 }
 
-TEST_F(PlayerTest, InvalidNameFallback) {
-    player->extract_name("name=\"Invalid<Char>\"");
-    EXPECT_EQ(player->name(), "dummy");
+TEST_F(
+    PlayerTest,
+    InvalidNameFallback
+) {
+    player->extract_name(
+        "name=\"Invalid<Char>\""
+    );
+
+    EXPECT_EQ(
+        player->name(),
+        "dummy"
+    );
 }
 
-TEST_F(PlayerTest, ExtractVersionComplex) {
-    player->extract_version("name=\"Bot\" version=\"1.0-beta.2\"");
-    EXPECT_EQ(player->version(), "1.0");
+TEST_F(
+    PlayerTest,
+    ExtractVersionComplex
+) {
+    player->extract_version(
+        "name=\"Bot\" version=\"1.0-beta.2\""
+    );
+
+    EXPECT_EQ(
+        player->version(),
+        "1.0"
+    );
 }
 
 TEST_F(PlayerTest, MessageCheck) {
-    EXPECT_TRUE(player->is_message_or_debug("MESSAGE hello"));
-    EXPECT_TRUE(player->is_message_or_debug("DEBUG info"));
-    EXPECT_FALSE(player->is_message_or_debug("10,10"));
-    EXPECT_FALSE(player->is_message_or_debug("OK"));
+    EXPECT_TRUE(
+        player->is_message_or_debug(
+            "MESSAGE hello"
+        )
+    );
+    EXPECT_TRUE(
+        player->is_message_or_debug(
+            "DEBUG info"
+        )
+    );
+    EXPECT_FALSE(
+        player->is_message_or_debug(
+            "10,10"
+        )
+    );
+    EXPECT_FALSE(
+        player->is_message_or_debug(
+            "OK"
+        )
+    );
 }
 
-TEST_F(PlayerTest, NoVersionProvided) {
-    player->extract_version("name=\"Bot\"");
-    EXPECT_EQ(player->version(), "unknown");
+TEST_F(
+    PlayerTest,
+    NoVersionProvided
+) {
+    player->extract_version(
+        "name=\"Bot\""
+    );
+
+    EXPECT_EQ(
+        player->version(),
+        "unknown"
+    );
 }
 
-TEST_F(PlayerTest, NoNameProvided) {
-    player->extract_name("version=\"1.0\"");
-    EXPECT_EQ(player->name(), "dummy");
+TEST_F(
+    PlayerTest,
+    NoNameProvided
+) {
+    player->extract_name(
+        "version=\"1.0\""
+    );
+
+    EXPECT_EQ(
+        player->name(),
+        "dummy"
+    );
 }
 
-TEST_F(PlayerTest, EmptyAboutString) {
+TEST_F(
+    PlayerTest,
+    EmptyAboutString
+) {
     player->extract_name("");
     player->extract_version("");
-    EXPECT_EQ(player->name(), "dummy");
-    EXPECT_EQ(player->version(), "unknown");
+
+    EXPECT_EQ(
+        player->name(),
+        "dummy"
+    );
+    EXPECT_EQ(
+        player->version(),
+        "unknown"
+    );
 }
 
-TEST_F(PlayerTest, MessageWithExtraSpaces) {
-    EXPECT_TRUE(player->is_message_or_debug("MESSAGE   spaced"));
-    EXPECT_TRUE(player->is_message_or_debug("DEBUG   spaced"));
+TEST_F(
+    PlayerTest,
+    MessageWithExtraSpaces
+) {
+    EXPECT_TRUE(
+        player->is_message_or_debug(
+            "MESSAGE   spaced"
+        )
+    );
+    EXPECT_TRUE(
+        player->is_message_or_debug(
+            "DEBUG   spaced"
+        )
+    );
 }
 
-TEST_F(PlayerTest, GetNameAndVersion) {
-    player->extract_name("name=\"TestBot\"");
-    player->extract_version("version=\"2.5\"");
-    EXPECT_EQ(player->name(), "TestBot");
-    EXPECT_EQ(player->version(), "2.5");
+TEST_F(
+    PlayerTest,
+    GetNameAndVersion
+) {
+    player->extract_name(
+        "name=\"TestBot\""
+    );
+    player->extract_version(
+        "version=\"2.5\""
+    );
+
+    EXPECT_EQ(
+        player->name(),
+        "TestBot"
+    );
+    EXPECT_EQ(
+        player->version(),
+        "2.5"
+    );
 }
 
-TEST_F(PlayerTest, LongNameTruncation) {
-    player->extract_name("name=\"VeryLongBotNameHere\"");
-    EXPECT_LE(player->name().length(), 16);
+TEST_F(
+    PlayerTest,
+    LongNameTruncation
+) {
+    player->extract_name(
+        "name=\"VeryLongBotNameHere\""
+    );
+
+    EXPECT_LE(
+        player->name().length(),
+        16
+    );
 }
 
-TEST_F(PlayerTest, VersionWithLeadingZeros) {
-    player->extract_version("version=\"01.02\"");
-    EXPECT_EQ(player->version(), "01.02");
+TEST_F(
+    PlayerTest,
+    VersionWithLeadingZeros
+) {
+    player->extract_version(
+        "version=\"01.02\""
+    );
+
+    EXPECT_EQ(
+        player->version(),
+        "01.02"
+    );
 }
 
-TEST_F(PlayerTest, SpecialVersion) {
-    player->extract_version("version=\"v2\"");
-    EXPECT_EQ(player->version(), "v2");
+TEST_F(
+    PlayerTest,
+    SpecialVersion
+) {
+    player->extract_version(
+        "version=\"v2\""
+    );
+
+    EXPECT_EQ(
+        player->version(),
+        "v2"
+    );
 }
 
-TEST_F(PlayerTest, QuotedEmptyName) {
-    player->extract_name("name=\"\"");
-    EXPECT_EQ(player->name(), "dummy");
+TEST_F(
+    PlayerTest,
+    QuotedEmptyName
+) {
+    player->extract_name(
+        "name=\"\""
+    );
+
+    EXPECT_EQ(
+        player->name(),
+        "dummy"
+    );
 }
 
-TEST_F(PlayerTest, UnquotedValue) {
-    player->extract_name("name=Bot");
-    EXPECT_EQ(player->name(), "dummy");
+TEST_F(
+    PlayerTest,
+    UnquotedValue
+) {
+    player->extract_name(
+        "name=Bot"
+    );
+
+    EXPECT_EQ(
+        player->name(),
+        "dummy"
+    );
 }
 
-TEST_F(PlayerTest, MultipleAttributes) {
-    std::string about = "author=\"John\" name=\"Bot\" version=\"1.0\" country=\"US\"";
+TEST_F(
+    PlayerTest,
+    MultipleAttributes
+) {
+    std::string about =
+        "author=\"John\" name=\"Bot\" version=\"1.0\" country=\"US\"";
+
     player->extract_name(about);
     player->extract_version(about);
-    EXPECT_EQ(player->name(), "Bot");
-    EXPECT_EQ(player->version(), "1.0");
+
+    EXPECT_EQ(
+        player->name(),
+        "Bot"
+    );
+    EXPECT_EQ(
+        player->version(),
+        "1.0"
+    );
+}
+
+TEST_F(
+    PlayerTest,
+    IgnoredOutputCannotRenewDeadline
+) {
+    auto messages =
+        std::make_unique<
+            TestHelpers::MockProcess
+        >(
+            [](const std::string&) {
+                return std::string(
+                    "MESSAGE still thinking"
+                );
+            }
+        );
+
+    Game::Player message_player(
+        "messages",
+        "P1",
+        std::move(messages)
+    );
+
+    long message_elapsed = 0;
+
+    EXPECT_THROW(
+        message_player.read(
+            5,
+            message_elapsed
+        ),
+        Core::PlayerError
+    );
+
+    EXPECT_GE(
+        message_elapsed,
+        5
+    );
+
+    auto garbage =
+        std::make_unique<
+            TestHelpers::MockProcess
+        >(
+            [](const std::string&) {
+                return std::string(
+                    "not a move"
+                );
+            }
+        );
+
+    Game::Player lenient_player(
+        "garbage",
+        "P2",
+        std::move(garbage)
+    );
+
+    lenient_player.set_lenient(true);
+
+    long garbage_elapsed = 0;
+
+    EXPECT_THROW(
+        lenient_player.read(
+            5,
+            garbage_elapsed
+        ),
+        Core::PlayerError
+    );
+
+    EXPECT_GE(
+        garbage_elapsed,
+        5
+    );
 }

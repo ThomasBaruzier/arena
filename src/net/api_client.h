@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <curl/curl.h>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -11,6 +12,7 @@
 #include <vector>
 
 class ApiTest;
+class ApiRecoveryTest;
 
 namespace Arena::Net {
 
@@ -19,14 +21,21 @@ public:
     CurlHandle() : handle_(curl_easy_init()) {}
 
     ~CurlHandle() {
-        if (handle_) curl_easy_cleanup(handle_);
+        if (handle_) {
+            curl_easy_cleanup(handle_);
+        }
     }
 
     CurlHandle(const CurlHandle&) = delete;
     CurlHandle& operator=(const CurlHandle&) = delete;
 
-    CURL* get() const { return handle_; }
-    explicit operator bool() const { return handle_ != nullptr; }
+    CURL* get() const {
+        return handle_;
+    }
+
+    explicit operator bool() const {
+        return handle_ != nullptr;
+    }
 
 private:
     CURL* handle_;
@@ -54,6 +63,7 @@ public:
         long duration = 0;
         std::string run_id;
         std::string config_label;
+        std::string status = "live";
         int total_games = 0;
         int games_played = 0;
         int wins = 0;
@@ -74,18 +84,31 @@ public:
         double p2_erf = 0;
         long long p1_time = 0;
         long long p2_time = 0;
+        long long p1_cpu_time = 0;
+        long long p2_cpu_time = 0;
+        long long p1_cpu_wall_time = 0;
+        long long p2_cpu_wall_time = 0;
         int p1_crashes = 0;
         int p2_crashes = 0;
         double p1_cma = 0;
         double p2_cma = 0;
         double p1_blunder = 0;
         double p2_blunder = 0;
-        bool is_done = false;
-        bool timed_out = false;
+        int p1_moves_analyzed = 0;
+        int p2_moves_analyzed = 0;
+        int p1_critical_total = 0;
+        int p2_critical_total = 0;
     };
 
-    ApiManager(std::string url, std::string key, int debounce);
-    ~ApiManager() { stop(); }
+    ApiManager(
+        std::string url,
+        std::string key,
+        int debounce
+    );
+
+    ~ApiManager() {
+        stop();
+    }
 
     void start();
     void stop();
@@ -93,18 +116,73 @@ public:
     void reset();
 
 private:
-    static bool is_progress_update(const Event& event);
-    static bool is_move(const Event& event);
+    struct RecoveryRun {
+        std::optional<Event> start;
+        std::optional<Event> update;
+    };
 
+    struct RecoveryGame {
+        std::string run_id;
+        std::optional<Event> start;
+        std::vector<Event> moves;
+        std::optional<Event> result;
+    };
+
+    static bool is_progress_update(
+        const Event& event
+    );
+
+    static bool is_move(
+        const Event& event
+    );
+
+    static bool is_terminal_update(
+        const Event& event
+    );
+
+    static std::optional<std::string>
+    generation_from_headers(
+        const std::string& headers
+    );
+
+    void remember_locked(
+        const Event& event
+    );
+
+    void acknowledge_locked(
+        const std::vector<Event>& events
+    );
+
+    bool has_recovery_state_locked() const;
+
+    bool observe_generation_locked(
+        const std::string& generation
+    );
+
+    bool recovery_is_pending();
+
+    std::vector<Event>
+    recovery_snapshot_locked() const;
+
+    bool recover(CURL* curl);
     bool make_room_locked();
     std::vector<Event> take_batch_locked();
     void discard_locked(size_t additional);
     void report_dropped();
     void loop();
 
-    bool send_batch(CURL* curl, const std::vector<Event>& batch);
-    std::string build_json_payload(const std::vector<Event>& batch);
-    std::string build_event_json(const Event& event);
+    bool send_batch(
+        CURL* curl,
+        const std::vector<Event>& batch
+    );
+
+    std::string build_json_payload(
+        const std::vector<Event>& batch
+    );
+
+    std::string build_event_json(
+        const Event& event
+    );
 
     std::string url_;
     std::string key_;
@@ -113,6 +191,14 @@ private:
     std::mutex mtx_;
     std::condition_variable cv_;
     std::deque<Event> queue_;
+    std::map<std::string, RecoveryRun>
+        recovery_runs_;
+    std::map<std::string, RecoveryGame>
+        recovery_games_;
+    std::optional<std::string>
+        server_generation_;
+    uint64_t generation_revision_ = 0;
+    bool recovery_pending_ = false;
     bool started_ = false;
     bool accepting_ = true;
     bool stopping_ = false;
@@ -121,6 +207,7 @@ private:
     bool dropped_reported_ = false;
 
     friend class ::ApiTest;
+    friend class ::ApiRecoveryTest;
 };
 
 }

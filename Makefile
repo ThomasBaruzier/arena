@@ -27,7 +27,6 @@ COV_LDFLAGS     := -lgtest -lgtest_main -lcurl -lpthread --coverage
 
 SRCS            := $(shell find $(SRC_DIR) -name "*.cpp")
 TEST_SRCS       := $(shell find $(TEST_DIR) -name "*.cpp")
-MOCK_SRCS       := $(shell find $(TEST_DIR)/mocks -name "*.cpp" 2>/dev/null)
 
 OBJS            := $(SRCS:%.cpp=$(OBJ_DIR)/%.o)
 TEST_OBJS       := $(TEST_SRCS:%.cpp=$(OBJ_DIR)/%.o)
@@ -40,7 +39,7 @@ MAIN_COV_OBJ    := $(COV_OBJ_DIR)/src/app/main.o
 
 DEPS            := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(COV_OBJS:.o=.d)
 
-.PHONY: all clean fclean re engine test cov coverage view-dev view-prod
+.PHONY: all clean fclean re engine test test-cpp test-sh test-py cov coverage view-dev view-prod
 
 all: $(NAME)
 
@@ -52,7 +51,7 @@ engine:
 	cd $(RAPFI_DIR)/build && cmake .. -DNO_COMMAND_MODULES=ON && $(MAKE) -j"$$(nproc)"
 	cp $(RAPFI_DIR)/build/$(ENGINE_NAME) .
 
-test: test-cpp test-sh
+test: test-cpp test-sh test-py
 	@echo "All tests passed."
 
 test-cpp: $(TEST_NAME)
@@ -60,6 +59,9 @@ test-cpp: $(TEST_NAME)
 
 test-sh: $(NAME)
 	bash tests/test_arena.sh
+
+test-py:
+	python3 -m unittest tests/test_openings_script.py
 
 $(TEST_NAME): $(filter-out $(MAIN_OBJ), $(OBJS)) $(TEST_OBJS)
 	$(CXX) $(CXXFLAGS) $^ -o $(TEST_NAME) $(TEST_LDFLAGS)
@@ -96,9 +98,7 @@ view-prod:
 
 clean:
 	rm -rf $(BUILD_DIR) $(COV_REPORT_DIR)
-	find . \( \
-		-name '*.o' -o -name '*.gcov' -o -name '*.gcda' -o -name '*.gcno' \
-	\) -print -delete
+	rm -f -- *.gcov
 
 fclean: clean
 	rm -f $(NAME) $(TEST_NAME) $(ENGINE_NAME) $(COV_NAME)

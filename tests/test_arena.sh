@@ -2,16 +2,122 @@
 
 ARENA="./arena"
 BOT="tests/test_bots/dummy_bot.sh"
+CRASH_BOT="tests/test_bots/crash_bot.sh"
+TIMEOUT_BOT="tests/test_bots/timeout_bot.sh"
 PASS=0
 FAIL=0
 TEST_DIR=$(mktemp -d)
-trap "rm -rf $TEST_DIR" EXIT
+LEGAL_BOT="$TEST_DIR/legal_bot.sh"
 
-pass() { PASS=$((PASS+1)); echo "  ✓ $1"; }
-fail() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+cat > "$LEGAL_BOT" <<'BOT'
+#!/bin/bash
+
+BOARD_SIZE=5
+
+while IFS= read -r line; do
+  command=${line%% *}
+  command=${command^^}
+
+  case "$command" in
+    ABOUT)
+      printf '%s\n' 'name="LegalBot", version="1.0"'
+      ;;
+    START)
+      BOARD_SIZE=${line#* }
+      printf '%s\n' "OK"
+      ;;
+    BEGIN)
+      printf '%s\n' "0,0"
+      ;;
+    BOARD)
+      occupied=" "
+
+      while IFS= read -r board_line; do
+        if [ "$board_line" = "DONE" ]; then
+          break
+        fi
+
+        IFS=',' read -r x y stone <<< "$board_line"
+        occupied+="$x,$y "
+      done
+
+      selected=""
+
+      for ((y = 0; y < BOARD_SIZE; y++)); do
+        for ((x = 0; x < BOARD_SIZE; x++)); do
+          if [[ "$occupied" != *" $x,$y "* ]]; then
+            selected="$x,$y"
+            break
+          fi
+        done
+
+        if [ -n "$selected" ]; then
+          break
+        fi
+      done
+
+      if [ -z "$selected" ]; then
+        exit 1
+      fi
+
+      printf '%s\n' "$selected"
+      ;;
+    TURN)
+      printf '%s\n' "0,0"
+      ;;
+    END)
+      exit 0
+      ;;
+  esac
+done
+BOT
+
+chmod +x "$LEGAL_BOT"
+
+pass() {
+    PASS=$((PASS + 1))
+    echo "  ✓ $1"
+}
+
+fail() {
+    FAIL=$((FAIL + 1))
+    echo "  ✗ $1"
+}
 
 run_arena() {
-    timeout 10 $ARENA "$@" 2>&1 || true
+    timeout 10 "$ARENA" "$@" 2>&1 || true
+}
+
+expect_output() {
+    local label="$1"
+    local pattern="$2"
+    shift 2
+
+    local output
+    output=$(run_arena "$@")
+
+    if echo "$output" | grep -Eq "$pattern"; then
+        pass "$label"
+    else
+        fail "$label"
+    fi
+}
+
+expect_error() {
+    local label="$1"
+    local pattern="$2"
+    shift 2
+
+    local output
+    output=$("$ARENA" "$@" 2>&1 || true)
+
+    if echo "$output" | grep -Eqi "$pattern"; then
+        pass "$label"
+    else
+        fail "$label"
+    fi
 }
 
 section() {
@@ -19,301 +125,715 @@ section() {
     echo "=== $1 ==="
 }
 
-# ============================================================
-section "Parser: Basic Flags"
-# ============================================================
+section "Parser Basics"
 
-$ARENA -h >/dev/null 2>&1 && pass "-h works" || fail "-h works"
-$ARENA --help >/dev/null 2>&1 && pass "--help works" || fail "--help works"
+"$ARENA" -h >/dev/null 2>&1 &&
+    pass "-h works" ||
+    fail "-h works"
 
-OUT=$($ARENA 2>&1 || true)
-echo "$OUT" | grep -q "Missing" && pass "Missing players error" || fail "Missing players error"
+"$ARENA" --help >/dev/null 2>&1 &&
+    pass "--help works" ||
+    fail "--help works"
 
-OUT=$($ARENA -1 $BOT 2>&1 || true)
-echo "$OUT" | grep -q "Missing" && pass "Missing -2 error" || fail "Missing -2 error"
+expect_error \
+    "Missing players error" \
+    "Missing"
 
-OUT=$($ARENA -2 $BOT 2>&1 || true)
-echo "$OUT" | grep -q "Missing" && pass "Missing -1 error" || fail "Missing -1 error"
+expect_error \
+    "Missing -2 error" \
+    "Missing" \
+    -1 "$BOT"
 
-# ============================================================
-section "Parser: Bundled Values Rejection"
-# ============================================================
+expect_error \
+    "Missing -1 error" \
+    "Missing" \
+    -2 "$BOT"
 
-for FLAG in "-t10s" "-T5s" "-g30s" "-s20" "-M50" "-m5" "-j4" "-l512m" "-N1000"; do
-    OUT=$($ARENA $FLAG -1 $BOT -2 $BOT 2>&1 || true)
-    if echo "$OUT" | grep -q "Unknown argument"; then
-        pass "Rejects bundled: $FLAG"
-    else
-        fail "Rejects bundled: $FLAG"
-    fi
+section "Bundled Values"
+
+for flag in \
+    "-t10s" \
+    "-T5s" \
+    "-g30s" \
+    "-s20" \
+    "-M50" \
+    "-m5" \
+    "-j4" \
+    "-l512m" \
+    "-N1000"
+do
+    expect_error \
+        "Rejects bundled: $flag" \
+        "Unknown argument" \
+        "$flag" \
+        -1 "$BOT" \
+        -2 "$BOT"
 done
 
-# ============================================================
-section "Parser: Duration Parsing"
-# ============================================================
+section "Durations"
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t 100ms -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t 100ms" || fail "-t 100ms"
+for value in 100ms 5 5s 1m 1h
+do
+    expect_output \
+        "-t $value" \
+        "Starting" \
+        -1 "$BOT" \
+        -2 "$BOT" \
+        -t "$value" \
+        -M 1
+done
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t 5 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t 5 (seconds)" || fail "-t 5 (seconds)"
+section "Memory"
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t 5s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t 5s" || fail "-t 5s"
+for value in 100k 512m 1g 512M 1G
+do
+    expect_output \
+        "-l $value" \
+        "Starting" \
+        -1 "$BOT" \
+        -2 "$BOT" \
+        -l "$value" \
+        -M 1
+done
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t 1m -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t 1m" || fail "-t 1m"
+section "Nodes"
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t 1h -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t 1h" || fail "-t 1h"
+expect_output \
+    "-N raw" \
+    "N1=1000 N2=1000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 1000 \
+    -M 1
 
-# ============================================================
-section "Parser: Memory Parsing"
-# ============================================================
+expect_output \
+    "-N 100k" \
+    "N1=100000 N2=100000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 100k \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l 100k -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l 100k" || fail "-l 100k"
+expect_output \
+    "-N 1m" \
+    "N1=1000000 N2=1000000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 1m \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l 512m -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l 512m" || fail "-l 512m"
+expect_output \
+    "-N 1M" \
+    "N1=1000000 N2=1000000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 1M \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l 1g -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l 1g" || fail "-l 1g"
+expect_output \
+    "-N decimal" \
+    "N1=1500000 N2=1500000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 1.5m \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l 512M -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l 512M (capital)" || fail "-l 512M (capital)"
+section "Per Player"
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l 1G -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l 1G (capital)" || fail "-l 1G (capital)"
+expect_output \
+    "-t1/-t2" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -t1 1s \
+    -t2 5s \
+    -M 1
 
-# ============================================================
-section "Parser: Node Count Parsing"
-# ============================================================
+expect_output \
+    "-T1/-T2" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -T1 2s \
+    -T2 10s \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 1000 -M 1)
-echo "$OUT" | grep -q "N1=1000 N2=1000" && pass "-N 1000 (raw)" || fail "-N 1000 (raw)"
+expect_output \
+    "-g1/-g2" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -g1 60s \
+    -g2 120s \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 100k -M 1)
-echo "$OUT" | grep -q "N1=100000 N2=100000" && pass "-N 100k" || fail "-N 100k"
+expect_output \
+    "-l1/-l2" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -l1 256m \
+    -l2 512m \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 1m -M 1)
-echo "$OUT" | grep -q "N1=1000000 N2=1000000" && pass "-N 1m" || fail "-N 1m"
+expect_output \
+    "-N1/-N2" \
+    "N1=100000 N2=200000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N1 100000 \
+    -N2 200000 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 1M -M 1)
-echo "$OUT" | grep -q "N1=1000000 N2=1000000" && pass "-N 1M (capital)" || fail "-N 1M (capital)"
+expect_output \
+    "-Ne" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -Ne 5000000 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 1.5m -M 1)
-echo "$OUT" | grep -q "N1=1500000 N2=1500000" && pass "-N 1.5m (decimal)" || fail "-N 1.5m (decimal)"
+section "Long Forms"
 
-# ============================================================
-section "Parser: Per-Player Flags"
-# ============================================================
+expect_output \
+    "Long timeout forms" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --p1-timeout-announce 1s \
+    --p2-timeout-announce 2s \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -t1 1s -t2 5s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-t1/-t2" || fail "-t1/-t2"
+expect_output \
+    "Long node forms" \
+    "N1=50000 N2=100000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --p1-max-nodes 50000 \
+    --p2-max-nodes 100000 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -T1 2s -T2 10s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-T1/-T2" || fail "-T1/-T2"
+expect_output \
+    "Long memory forms" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --p1-memory 256m \
+    --p2-memory 512m \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -g1 60s -g2 120s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-g1/-g2" || fail "-g1/-g2"
+section "Batch Expansion"
 
-OUT=$(run_arena -1 $BOT -2 $BOT -l1 256m -l2 512m -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-l1/-l2" || fail "-l1/-l2"
+expect_output \
+    "Common node list" \
+    "Starting 3 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 100k,200k,300k \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N1 100000 -N2 200000 -M 1)
-echo "$OUT" | grep -q "N1=100000 N2=200000" && pass "-N1/-N2" || fail "-N1/-N2"
+expect_output \
+    "Maximum pair list" \
+    "Starting 3 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -M 10,25,50
 
-OUT=$(run_arena -1 $BOT -2 $BOT -Ne 5000000 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-Ne (eval nodes)" || fail "-Ne (eval nodes)"
+expect_output \
+    "Minimum pair list" \
+    "Starting 2 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -m 5,10 \
+    -M 50
 
-# ============================================================
-section "Parser: Long Form Flags"
-# ============================================================
+expect_output \
+    "Seed repeat list" \
+    "Starting 3 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --seed 111,222,333 \
+    --repeat 3 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --p1-timeout-announce 1s --p2-timeout-announce 2s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--p1/p2-timeout-announce" || fail "--p1/p2-timeout-announce"
+expect_output \
+    "Diagonal expansion" \
+    "Starting 2 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 100k,200k \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --p1-max-nodes 50000 --p2-max-nodes 100000 -M 1)
-echo "$OUT" | grep -q "N1=50000 N2=100000" && pass "--p1/p2-max-nodes" || fail "--p1/p2-max-nodes"
+expect_output \
+    "Cartesian expansion" \
+    "Starting 4 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N1 100k,200k \
+    -N2 300k,400k \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --p1-memory 256m --p2-memory 512m -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--p1/p2-memory" || fail "--p1/p2-memory"
+expect_output \
+    "Asymmetric expansion" \
+    "Starting 3 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N1 100k,200k,300k \
+    -N2 500k \
+    -M 1
 
-# ============================================================
-section "Parser: List Values (CSV)"
-# ============================================================
+expect_output \
+    "Repeat expansion" \
+    "Starting 5 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 100k \
+    -M 1 \
+    --repeat 5
 
-OUT=$(run_arena -1 $BOT -2 $BOT -N 100k,200k,300k -M 1)
-echo "$OUT" | grep -q "Starting 3 batch" && pass "-N with 3 values" || fail "-N with 3 values"
+expect_output \
+    "Full product" \
+    "Starting 16 batch" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N1 100k,200k \
+    -N2 300k,400k \
+    -M 5,10 \
+    --repeat 2
 
-OUT=$(run_arena -1 $BOT -2 $BOT -M 10,25,50)
-echo "$OUT" | grep -q "Starting 3 batch" && pass "-M with 3 values" || fail "-M with 3 values"
-
-OUT=$(run_arena -1 $BOT -2 $BOT -m 5,10 -M 50)
-echo "$OUT" | grep -q "Starting 2 batch" && pass "-m with 2 values" || fail "-m with 2 values"
-
-OUT=$(run_arena -1 $BOT -2 $BOT --seed 111,222,333 -M 1 --repeat 3)
-echo "$OUT" | grep -q "Starting 3 batch" && pass "--seed with 3 values" || fail "--seed with 3 values"
-
-# ============================================================
-section "Batch Expansion: Diagonal vs Cross Product"
-# ============================================================
-
-OUT=$(run_arena -1 $BOT -2 $BOT -N 100k,200k -M 1)
-CONFIGS=$(echo "$OUT" | grep "Starting" | grep -oP '\d+(?= batch)')
-[ "$CONFIGS" = "2" ] && pass "-N diagonal: 2 configs" || fail "-N diagonal: 2 configs (got $CONFIGS)"
-
-OUT=$(run_arena -1 $BOT -2 $BOT -N1 100k,200k -N2 300k,400k -M 1)
-CONFIGS=$(echo "$OUT" | grep "Starting" | grep -oP '\d+(?= batch)')
-[ "$CONFIGS" = "4" ] && pass "-N1/-N2 cross: 4 configs" || fail "-N1/-N2 cross: 4 configs (got $CONFIGS)"
-
-OUT=$(run_arena -1 $BOT -2 $BOT -N1 100k,200k,300k -N2 500k -M 1)
-CONFIGS=$(echo "$OUT" | grep "Starting" | grep -oP '\d+(?= batch)')
-[ "$CONFIGS" = "3" ] && pass "Asymmetric: 3×1=3 configs" || fail "Asymmetric: 3×1=3 configs (got $CONFIGS)"
-
-OUT=$(run_arena -1 $BOT -2 $BOT -N 100k -M 1 --repeat 5)
-CONFIGS=$(echo "$OUT" | grep "Starting" | grep -oP '\d+(?= batch)')
-[ "$CONFIGS" = "5" ] && pass "--repeat 5: 5 configs" || fail "--repeat 5: 5 configs (got $CONFIGS)"
-
-OUT=$(run_arena -1 $BOT -2 $BOT -N1 100k,200k -N2 300k,400k -M 5,10 --repeat 2)
-CONFIGS=$(echo "$OUT" | grep "Starting" | grep -oP '\d+(?= batch)')
-[ "$CONFIGS" = "16" ] && pass "Full: 2×2×2×2=16 configs" || fail "Full: 2×2×2×2=16 configs (got $CONFIGS)"
-
-# ============================================================
 section "NDJSON Export"
-# ============================================================
 
 EXPORT="$TEST_DIR/export.ndjson"
-run_arena -1 $BOT -2 $BOT -N 100k,200k -M 1 --export-results "$EXPORT" >/dev/null
 
-[ -f "$EXPORT" ] && pass "Creates export file" || fail "Creates export file"
+run_arena \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -N 100k,200k \
+    -M 1 \
+    --export-results "$EXPORT" \
+    >/dev/null
+
+if [ -f "$EXPORT" ]; then
+    pass "Creates export file"
+else
+    fail "Creates export file"
+fi
 
 if [ -f "$EXPORT" ]; then
     LINES=$(wc -l < "$EXPORT")
-    [ "$LINES" = "2" ] && pass "2 NDJSON lines for 2 configs" || fail "2 NDJSON lines (got $LINES)"
 
-    head -1 "$EXPORT" | grep -q '"p1_cmd"' && pass "Has p1_cmd field" || fail "Has p1_cmd field"
-    head -1 "$EXPORT" | grep -q '"p1_nodes"' && pass "Has p1_nodes field" || fail "Has p1_nodes field"
-    head -1 "$EXPORT" | grep -q '"p2_nodes"' && pass "Has p2_nodes field" || fail "Has p2_nodes field"
-    head -1 "$EXPORT" | grep -q '"board_size"' && pass "Has board_size field" || fail "Has board_size field"
-    head -1 "$EXPORT" | grep -q '"duration"' && pass "Has duration field" || fail "Has duration field"
-    head -1 "$EXPORT" | grep -q '"wins"' && pass "Has wins field" || fail "Has wins field"
-    head -1 "$EXPORT" | grep -q '"elo"' && pass "Has elo field" || fail "Has elo field"
-    head -1 "$EXPORT" | grep -q '"erf"' && pass "Has erf field" || fail "Has erf field"
-    head -1 "$EXPORT" | grep -q '"time"' && pass "Has time field" || fail "Has time field"
-    head -1 "$EXPORT" | grep -q '"seed"' && pass "Has seed field" || fail "Has seed field"
+    if [ "$LINES" = "2" ]; then
+        pass "Two export lines"
+    else
+        fail "Two export lines"
+    fi
 
-    python3 -c "import json; [json.loads(l) for l in open('$EXPORT') if l.strip()]" 2>/dev/null && \
-        pass "Valid JSON" || fail "Valid JSON"
+    if python3 - "$EXPORT" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+rows = [json.loads(line) for line in open(path) if line.strip()]
+assert rows
+
+for row in rows:
+    assert row["status"] in {"ended", "stopped"}
+    assert "is_done" not in row
+    assert "timed_out" not in row
+
+    for side in ("p1", "p2"):
+        player = row[side]
+        assert isinstance(player["time"], int)
+        assert isinstance(player["cpu_time"], int)
+        assert isinstance(player["cpu_wall_time"], int)
+        assert player["eff"] is None or isinstance(player["eff"], (int, float))
+        assert isinstance(player["moves_analyzed"], int)
+        assert isinstance(player["critical_total"], int)
+PY
+    then
+        pass "Current telemetry contract"
+    else
+        fail "Current telemetry contract"
+    fi
+
+    if python3 - "$EXPORT" <<'PY'
+import json
+import sys
+
+for line in open(sys.argv[1]):
+    if line.strip():
+        json.loads(line)
+PY
+    then
+        pass "Valid JSON"
+    else
+        fail "Valid JSON"
+    fi
 fi
 
-# ============================================================
-section "Edge Cases & Validation"
-# ============================================================
+section "Validation"
 
-OUT=$($ARENA -1 $BOT -2 $BOT -s 4 -M 1 2>&1 || true)
-echo "$OUT" | grep -qi "board size\|between" && pass "Rejects -s 4 (too small)" || fail "Rejects -s 4 (too small)"
+expect_error \
+    "Rejects small board" \
+    "board size|between" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -s 4 \
+    -M 1
 
-OUT=$($ARENA -1 $BOT -2 $BOT -s 41 -M 1 2>&1 || true)
-echo "$OUT" | grep -qi "board size\|between" && pass "Rejects -s 41 (too big)" || fail "Rejects -s 41 (too big)"
+expect_error \
+    "Rejects large board" \
+    "board size|between" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -s 41 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -s 5 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "Accepts -s 5 (min)" || fail "Accepts -s 5 (min)"
+expect_output \
+    "Accepts minimum board" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -s 5 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -s 40 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "Accepts -s 40 (max)" || fail "Accepts -s 40 (max)"
+expect_output \
+    "Accepts maximum board" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -s 40 \
+    -M 1
 
-OUT=$($ARENA -1 $BOT -2 $BOT -r -0.1 -M 1 2>&1 || true)
-echo "$OUT" | grep -qi "risk\|Unknown argument" && pass "Rejects -r -0.1 (negative)" || fail "Rejects -r -0.1 (negative)"
+expect_error \
+    "Rejects negative risk" \
+    "risk|Unknown argument" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -r -0.1 \
+    -M 1
 
-OUT=$($ARENA -1 $BOT -2 $BOT -r 1.5 -M 1 2>&1 || true)
-echo "$OUT" | grep -qi "risk" && pass "Rejects -r 1.5 (>1)" || fail "Rejects -r 1.5 (>1)"
+expect_error \
+    "Rejects excessive risk" \
+    "risk" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -r 1.5 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -r 0 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "Accepts -r 0" || fail "Accepts -r 0"
+expect_output \
+    "Accepts zero risk" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -r 0 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -r 1 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "Accepts -r 1" || fail "Accepts -r 1"
+expect_output \
+    "Accepts unit risk" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -r 1 \
+    -M 1
 
-OUT=$($ARENA -1 $BOT -2 $BOT -M 0 2>&1 || true)
-echo "$OUT" | grep -qi "max-pairs\|must be" && pass "Rejects -M 0" || fail "Rejects -M 0"
+expect_error \
+    "Rejects zero pairs" \
+    "max-pairs|must be" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -M 0
 
-OUT=$($ARENA -1 $BOT -2 $BOT --fake-flag 2>&1 || true)
-echo "$OUT" | grep -q "Unknown argument" && pass "Rejects --fake-flag" || fail "Rejects --fake-flag"
+expect_error \
+    "Rejects unknown long flag" \
+    "Unknown argument" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --fake-flag
 
-OUT=$($ARENA -1 $BOT -2 $BOT -Z 2>&1 || true)
-echo "$OUT" | grep -q "Unknown argument" && pass "Rejects -Z" || fail "Rejects -Z"
+expect_error \
+    "Rejects unknown short flag" \
+    "Unknown argument" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -Z
 
-# ============================================================
 section "Boolean Flags"
-# ============================================================
 
-OUT=$(run_arena -1 $BOT -2 $BOT -b -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-b (show board)" || fail "-b (show board)"
+for flag in \
+    -b \
+    -d \
+    --cleanup \
+    --exit-on-crash \
+    --shuffle-openings
+do
+    expect_output \
+        "$flag" \
+        "Starting" \
+        -1 "$BOT" \
+        -2 "$BOT" \
+        "$flag" \
+        -M 1
+done
 
-OUT=$(run_arena -1 $BOT -2 $BOT -d -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-d (debug)" || fail "-d (debug)"
+section "API Validation"
 
-OUT=$(run_arena -1 $BOT -2 $BOT --cleanup -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--cleanup" || fail "--cleanup"
+expect_error \
+    "Requires API pair" \
+    "api.*together|key" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --api-url http://localhost \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --exit-on-crash -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--exit-on-crash" || fail "--exit-on-crash"
+section "Compatibility"
 
-OUT=$(run_arena -1 $BOT -2 $BOT --shuffle-openings -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--shuffle-openings" || fail "--shuffle-openings"
+expect_output \
+    "-s works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -s 15 \
+    -M 1
 
-# ============================================================
-section "API Flags (Validation Only)"
-# ============================================================
+expect_output \
+    "-j works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -j 2 \
+    -M 1
 
-OUT=$($ARENA -1 $BOT -2 $BOT --api-url http://localhost -M 1 2>&1 || true)
-echo "$OUT" | grep -qi "api.*together\|key" && pass "Requires both --api-url and --api-key" || fail "Requires both --api-url and --api-key"
+expect_output \
+    "-r works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -r 0.1 \
+    -M 1
 
-# ============================================================
-section "Regression: Original Flag Compatibility"
-# ============================================================
+expect_output \
+    "-e works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    -e ./fake \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -s 15 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-s works" || fail "-s works"
+expect_output \
+    "--size works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --size 15 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -j 2 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-j works" || fail "-j works"
+expect_output \
+    "--threads works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --threads 2 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT -r 0.1 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-r works" || fail "-r works"
+expect_output \
+    "Pair long forms" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --min-pairs 1 \
+    --max-pairs 5
 
-OUT=$(run_arena -1 $BOT -2 $BOT -e ./fake -M 1)
-echo "$OUT" | grep -q "Starting" && pass "-e works" || fail "-e works"
+expect_output \
+    "--timeout-announce works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --timeout-announce 2s \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --size 15 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--size works" || fail "--size works"
+expect_output \
+    "--timeout-cutoff works" \
+    "Starting" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --timeout-cutoff 5s \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --threads 2 -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--threads works" || fail "--threads works"
+expect_output \
+    "--max-nodes works" \
+    "N1=100000 N2=100000" \
+    -1 "$BOT" \
+    -2 "$BOT" \
+    --max-nodes 100000 \
+    -M 1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --min-pairs 1 --max-pairs 5)
-echo "$OUT" | grep -q "Starting" && pass "--min-pairs/--max-pairs works" || fail "--min-pairs/--max-pairs works"
+section "Exit Status"
 
-OUT=$(run_arena -1 $BOT -2 $BOT --timeout-announce 2s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--timeout-announce works" || fail "--timeout-announce works"
+NORMAL_EXPORT="$TEST_DIR/normal.ndjson"
 
-OUT=$(run_arena -1 $BOT -2 $BOT --timeout-cutoff 5s -M 1)
-echo "$OUT" | grep -q "Starting" && pass "--timeout-cutoff works" || fail "--timeout-cutoff works"
+"$ARENA" \
+    -1 "$LEGAL_BOT" \
+    -2 "$LEGAL_BOT" \
+    -s 5 \
+    -B \
+    -j 1 \
+    -T 1s \
+    -M 1 \
+    --export-results "$NORMAL_EXPORT" \
+    >"$TEST_DIR/normal.log" 2>&1
 
-OUT=$(run_arena -1 $BOT -2 $BOT --max-nodes 100000 -M 1)
-echo "$OUT" | grep -q "N1=100000 N2=100000" && pass "--max-nodes works" || fail "--max-nodes works"
+NORMAL_STATUS=$?
 
-# ============================================================
+if [ "$NORMAL_STATUS" -eq 0 ]; then
+    pass "Normal completion exits zero"
+else
+    fail "Normal completion exits zero"
+    printf '    exit status: %s\n' "$NORMAL_STATUS"
+    sed 's/^/    /' "$TEST_DIR/normal.log"
+fi
+
+if python3 - "$NORMAL_EXPORT" <<'PY'
+import json
+import sys
+
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+assert len(rows) == 1
+assert rows[0]["status"] == "ended"
+PY
+then
+    pass "Normal completion exports ended"
+else
+    fail "Normal completion exports ended"
+fi
+
+STRICT_EXPORT="$TEST_DIR/strict.ndjson"
+
+"$ARENA" \
+    -1 "$CRASH_BOT" \
+    -2 "$LEGAL_BOT" \
+    -s 5 \
+    -B \
+    -j 1 \
+    -T 1s \
+    -M 1 \
+    --exit-on-crash \
+    --export-results "$STRICT_EXPORT" \
+    >"$TEST_DIR/strict.log" 2>&1
+
+STRICT_STATUS=$?
+
+if [ "$STRICT_STATUS" -eq 2 ]; then
+    pass "Strict bot crash exits with bot failure"
+else
+    fail "Strict bot crash exits with bot failure"
+fi
+
+INTERRUPT_EXPORT="$TEST_DIR/interrupted.ndjson"
+
+"$ARENA" \
+    -1 "$TIMEOUT_BOT" \
+    -2 "$TIMEOUT_BOT" \
+    -s 5 \
+    -j 1 \
+    -T 60s \
+    -M 1 \
+    --export-results "$INTERRUPT_EXPORT" \
+    >"$TEST_DIR/interrupted.log" 2>&1 &
+
+ARENA_PID=$!
+CHILDREN=""
+
+for _ in $(seq 1 200); do
+    if ! kill -0 "$ARENA_PID" 2>/dev/null; then
+        break
+    fi
+
+    CHILDREN=$(
+        ps -o pid= --ppid "$ARENA_PID" 2>/dev/null |
+            awk '{$1=$1; if ($1) print $1}' |
+            tr '\n' ' '
+    )
+
+    if [ -n "$CHILDREN" ]; then
+        break
+    fi
+
+    sleep 0.01
+done
+
+if [ -n "$CHILDREN" ]; then
+    pass "Interrupt test captured bot children"
+else
+    fail "Interrupt test captured bot children"
+fi
+
+kill -INT "$ARENA_PID" 2>/dev/null
+wait "$ARENA_PID"
+INTERRUPT_STATUS=$?
+
+if [ "$INTERRUPT_STATUS" -eq 130 ]; then
+    pass "SIGINT exits 130"
+else
+    fail "SIGINT exits 130"
+fi
+
+if python3 - "$INTERRUPT_EXPORT" <<'PY'
+import json
+import sys
+
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+assert len(rows) == 1
+assert rows[0]["status"] == "stopped"
+PY
+then
+    pass "SIGINT exports stopped"
+else
+    fail "SIGINT exports stopped"
+fi
+
+CHILDREN_GONE=1
+
+for child in $CHILDREN; do
+    for _ in $(seq 1 100); do
+        if ! kill -0 "$child" 2>/dev/null &&
+           ! kill -0 -- "-$child" 2>/dev/null; then
+            break
+        fi
+
+        sleep 0.01
+    done
+
+    if kill -0 "$child" 2>/dev/null ||
+       kill -0 -- "-$child" 2>/dev/null; then
+        CHILDREN_GONE=0
+    fi
+done
+
+if [ "$CHILDREN_GONE" -eq 1 ]; then
+    pass "SIGINT cleans bot process groups"
+else
+    fail "SIGINT cleans bot process groups"
+fi
+
 section "Summary"
-# ============================================================
+
+TOTAL=$((PASS + FAIL))
 
 echo ""
-TOTAL=$((PASS+FAIL))
 echo "Passed: $PASS / $TOTAL"
 echo "Failed: $FAIL"
-COVERAGE=$((PASS * 100 / TOTAL))
+
+if [ "$TOTAL" -gt 0 ]; then
+    COVERAGE=$((PASS * 100 / TOTAL))
+else
+    COVERAGE=0
+fi
+
 echo "Coverage: ${COVERAGE}%"
 
-if [ "$FAIL" -gt 0 ]; then exit 1; else exit 0; fi
+if [ "$FAIL" -gt 0 ]; then
+    exit 1
+fi
+
+exit 0

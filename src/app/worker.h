@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 #include "context.h"
 #include "../game/referee.h"
@@ -27,21 +28,44 @@ struct WorkerState {
     std::mutex& ndjson_mtx;
 };
 
-bool run_ready_to_finalize(const RunContext& context);
+double slot1_pair_score(
+    double first_leg_black_score,
+    double second_leg_black_score
+);
+
+bool record_completed_pair(
+    MatchState& state,
+    Stats::Tracker& stats,
+    double first_leg_black_score,
+    double second_leg_black_score
+);
+
+bool run_ready_to_finalize(
+    const RunContext& context
+);
+
+std::string run_status(
+    const RunContext& context,
+    bool finalized,
+    bool incomplete = false
+);
 
 void interleaved_worker_loop(
     const Core::Config& config,
     WorkerState& state
 );
 
-void finalize_all_runs(WorkerState& state);
+void finalize_all_runs(
+    WorkerState& state
+);
 
 std::string format_ndjson_line(
     const Core::BatchConfig& batch,
     const Core::RunSpec& run,
     const MatchState& state,
     const Stats::Tracker& stats,
-    double duration
+    double duration,
+    const std::string& status
 );
 
 }
