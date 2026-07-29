@@ -1,12 +1,12 @@
 const missing = (value) => value == null || value === '';
 
 const formatNumber = (value, digits = 1) => {
-  if (missing(value)) return '—';
+  if (missing(value)) return '-';
 
   const number = Number(value);
 
   if (!Number.isFinite(number)) {
-    return '—';
+    return '-';
   }
 
   return number.toLocaleString(undefined, {
@@ -15,24 +15,24 @@ const formatNumber = (value, digits = 1) => {
 };
 
 const formatPercent = (value) => {
-  if (missing(value)) return '—';
+  if (missing(value)) return '-';
 
   const number = Number(value);
 
   if (!Number.isFinite(number)) {
-    return '—';
+    return '-';
   }
 
   return `${number.toFixed(1)}%`;
 };
 
 const formatTime = (value) => {
-  if (missing(value)) return '—';
+  if (missing(value)) return '-';
 
   const milliseconds = Number(value);
 
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {
-    return '—';
+    return '-';
   }
 
   if (milliseconds < 1000) {
@@ -100,16 +100,16 @@ export default function TournamentStats({ group, run }) {
           {showCma && (
             <Row
               label="CMA"
-              first={run.p1_critical_total > 0 ? formatPercent(run.p1_cma) : '—'}
-              second={run.p2_critical_total > 0 ? formatPercent(run.p2_cma) : '—'}
+              first={run.p1_critical_total > 0 ? formatPercent(run.p1_cma) : '-'}
+              second={run.p2_critical_total > 0 ? formatPercent(run.p2_cma) : '-'}
             />
           )}
 
           {showBlunder && (
             <Row
               label="Blunder"
-              first={run.p1_moves_analyzed > 0 ? formatPercent(run.p1_blunder) : '—'}
-              second={run.p2_moves_analyzed > 0 ? formatPercent(run.p2_blunder) : '—'}
+              first={run.p1_moves_analyzed > 0 ? formatPercent(run.p1_blunder) : '-'}
+              second={run.p2_moves_analyzed > 0 ? formatPercent(run.p2_blunder) : '-'}
             />
           )}
 

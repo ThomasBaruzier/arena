@@ -71,7 +71,7 @@ describe('TournamentStats', () => {
     expect(screen.getByText('CMA')).toBeInTheDocument();
     expect(screen.getByText('Blunder')).toBeInTheDocument();
     expect(screen.getByText('80.0%')).toBeInTheDocument();
-    expect(screen.getAllByText('—')).toHaveLength(1);
+    expect(screen.getAllByText('-')).toHaveLength(1);
   });
 
   it('hides crashes when both values are zero', () => {
@@ -107,6 +107,6 @@ describe('TournamentStats', () => {
       />
     );
 
-    expect(screen.getAllByText('—')).toHaveLength(2);
+    expect(screen.getAllByText('-')).toHaveLength(2);
   });
 });

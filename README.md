@@ -65,7 +65,7 @@ High-performance, multithreaded tournament runner for Gomoku engines, featuring 
 
 ## Documentation
 
-- [User guide](docs/user_guide.md) — command-line usage, batch modes, openings, output, and viewer operation
-- [Bot protocol](docs/bot_protocol.md) — protocol details and extensions for engine authors
-- [Statistics and metrics](docs/statistics.md) — Elo, ERF, SPRT, efficiency, and quality metrics
-- [Development guide](docs/development.md) — build system, testing, and architecture
+- [User guide](docs/user_guide.md): command-line usage, batch modes, openings, output, and viewer operation
+- [Bot protocol](docs/bot_protocol.md): protocol details and extensions for engine authors
+- [Statistics and metrics](docs/statistics.md): Elo, ERF, SPRT, efficiency, and quality metrics
+- [Development guide](docs/development.md): build system, testing, and architecture

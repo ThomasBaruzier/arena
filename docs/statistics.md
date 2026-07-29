@@ -136,7 +136,7 @@ Interpretation:
 - A value above 100% is retained and can indicate multi-core process activity.
 - Efficiency is unavailable until positive CPU-sampled thinking wall time has been recorded.
 
-The UI displays unavailable efficiency as `—`, while NDJSON uses `null`.
+The UI displays unavailable efficiency as `-`, while NDJSON uses `null`.
 
 Efficiency is not clamped to 100%.
 
@@ -166,7 +166,7 @@ CMA = critical successes / critical positions × 100
 
 CMA is unavailable when no critical positions have been analyzed.
 
-The viewer hides the CMA row when neither player has critical samples. If only one player has critical samples, the other side displays `—`.
+The viewer hides the CMA row when neither player has critical samples. If only one player has critical samples, the other side displays `-`.
 
 ### Blunder rate
 
@@ -181,7 +181,7 @@ Blunder = severe errors / analyzed moves × 100
 
 Blunder rate is unavailable when no moves have been analyzed.
 
-The viewer hides the Blunder row when neither player has analyzed samples. If only one player has analyzed samples, the other side displays `—`.
+The viewer hides the Blunder row when neither player has analyzed samples. If only one player has analyzed samples, the other side displays `-`.
 
 ### Garbage-time filtering
 

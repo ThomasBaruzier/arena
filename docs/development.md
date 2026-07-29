@@ -7,7 +7,7 @@ The project uses a standard makefile.
 * `make`: builds the arena binary.
 * `make engine`: builds the reference rapfi engine (requires cmake).
 * `make test`: runs unit and integration tests.
-* `make cov`: generates code coverage reports (requires lcov).
+* `make cov`: generates a line-coverage report using `gcov`.
 * `make clean`: removes build artifacts.
 
 ## Project structure
