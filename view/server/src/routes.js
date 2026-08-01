@@ -1,98 +1,195 @@
 import express from 'express';
 import * as db from './db.js';
-import * as repo from './repository.js';
+import * as repository from './repository.js';
 import sse from './sse.js';
 import { groupIdFromExternalId } from './utils.js';
 
 const STATUSES = new Set(['live', 'ended', 'stopped']);
-
-const MATCHUP_SORTS = new Set(['id', 'moves', 'status', 'time', 'duration']);
-
+const RESULT_REASONS = new Set(['line', 'draw', 'adjudication', 'void']);
+const GAME_SORTS = new Set(['id', 'moves', 'duration', 'result']);
 const ORDERS = new Set(['asc', 'desc']);
 
-const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+const RUN_START_FIELDS = new Set([
+  'type',
+  'run_id',
+  'status',
+  'analysis_enabled',
+  'slots',
+  'config_label',
+  'total_games',
+  'p1_nodes',
+  'p2_nodes',
+  'eval_nodes',
+  'board_size',
+  'min_pairs',
+  'max_pairs',
+  'repeat_index',
+  'seed'
+]);
+
+const SLOT_FIELDS = new Set(['slot', 'name', 'version', 'cmd']);
+
+const START_FIELDS = new Set([
+  'type',
+  'external_id',
+  'run_id',
+  'black_slot',
+  'white_slot',
+  'op_len'
+]);
+
+const MOVE_FIELDS = new Set(['type', 'external_id', 'run_id', 'x', 'y', 'c']);
+
+const RESULT_FIELDS = new Set([
+  'type',
+  'external_id',
+  'run_id',
+  'winner',
+  'reason',
+  'moves',
+  'op_len',
+  'duration'
+]);
+
+const GAME_QUERY_FIELDS = new Set(['run_id', 'limit', 'offset', 'sort', 'order', 'cursor']);
+
+const RUN_UPDATE_VALUES = [
+  ['games_played', 'games_played', 'integer'],
+  ['wins', 'wins', 'integer'],
+  ['losses', 'losses', 'integer'],
+  ['draws', 'draws', 'integer'],
+  ['wall_time_ms', 'wall_time_ms', 'integer'],
+  ['p1_elo', 'p1_elo', 'finite'],
+  ['p1_erf', 'p1_erf', 'finite'],
+  ['p1_time', 'p1_total_time_ms', 'integer'],
+  ['p1_cpu_time', 'p1_cpu_time_ms', 'integer'],
+  ['p1_cpu_wall_time', 'p1_cpu_wall_time_ms', 'integer'],
+  ['p1_crashes', 'p1_crashes', 'integer'],
+  ['p1_cma', 'p1_cma', 'finite'],
+  ['p1_blunder', 'p1_blunder', 'finite'],
+  ['p1_moves_analyzed', 'p1_moves_analyzed', 'integer'],
+  ['p1_critical_total', 'p1_critical_total', 'integer'],
+  ['p2_elo', 'p2_elo', 'finite'],
+  ['p2_erf', 'p2_erf', 'finite'],
+  ['p2_time', 'p2_total_time_ms', 'integer'],
+  ['p2_cpu_time', 'p2_cpu_time_ms', 'integer'],
+  ['p2_cpu_wall_time', 'p2_cpu_wall_time_ms', 'integer'],
+  ['p2_crashes', 'p2_crashes', 'integer'],
+  ['p2_cma', 'p2_cma', 'finite'],
+  ['p2_blunder', 'p2_blunder', 'finite'],
+  ['p2_moves_analyzed', 'p2_moves_analyzed', 'integer'],
+  ['p2_critical_total', 'p2_critical_total', 'integer']
+];
+
+const RUN_UPDATE_FIELDS = new Set([
+  'type',
+  'run_id',
+  'status',
+  ...RUN_UPDATE_VALUES.map(([field]) => field)
+]);
+
+const DIRECTIONS = [
+  [1, 0],
+  [0, 1],
+  [1, 1],
+  [1, -1]
+];
+
+class ProtocolError extends Error {}
+
+const reject = (message) => {
+  throw new ProtocolError(message);
+};
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const onlyFields = (value, allowed) =>
+  isObject(value) && Object.keys(value).every((field) => allowed.has(field));
 
 const validString = (value) => typeof value === 'string' && value.trim().length > 0;
 
-const validOptionalString = (value) => value == null || typeof value === 'string';
+const validOptionalString = (value) => value === undefined || typeof value === 'string';
 
 const validFinite = (value) => typeof value === 'number' && Number.isFinite(value);
 
-const validInteger = (value, min, max = Number.MAX_SAFE_INTEGER) =>
-  Number.isSafeInteger(value) && value >= min && value <= max;
+const validInteger = (value, minimum, maximum = Number.MAX_SAFE_INTEGER) =>
+  Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 
-const validOptionalInteger = (value, min, max = Number.MAX_SAFE_INTEGER) =>
-  value == null || validInteger(value, min, max);
+const validOptionalInteger = (value, minimum, maximum = Number.MAX_SAFE_INTEGER) =>
+  value === undefined || validInteger(value, minimum, maximum);
 
-const validOptionalFinite = (value) => value == null || validFinite(value);
+const validNullableInteger = (value, minimum, maximum = Number.MAX_SAFE_INTEGER) =>
+  value === undefined || value === null || validInteger(value, minimum, maximum);
 
-const validOptionalStatus = (value) => value === undefined || STATUSES.has(value);
+const validOptionalFinite = (value) => value === undefined || validFinite(value);
 
 const normalizeVersion = (version) => {
   const value = typeof version === 'string' ? version.trim() : '';
-
   return value || 'unknown';
 };
 
-const integerOr = (value, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) =>
-  value === undefined ? fallback : validInteger(value, min, max) ? value : fallback;
+const valueOr = (value, fallback) => (value === undefined ? fallback : value);
 
-const finiteOr = (value, fallback) =>
-  value === undefined ? fallback : validFinite(value) ? value : fallback;
+const nextStatus = (current, incoming) => (current === 'live' ? (incoming ?? current) : current);
 
-const nextStatus = (current, incoming) => {
-  if (current !== 'live') return current;
-  return incoming ?? current;
-};
+const sameValue = (first, second) => first === second || (first == null && second == null);
 
-const parseQueryInteger = (value, fallback, min, max) => {
+const parseQueryInteger = (value, fallback, minimum, maximum) => {
   if (value === undefined) return fallback;
-
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    return null;
-  }
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
 
   const parsed = Number(value);
-
-  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
-    return null;
-  }
-
-  return parsed;
+  return validInteger(parsed, minimum, maximum) ? parsed : null;
 };
 
-const getEventSlots = (event) => {
-  if (!Array.isArray(event.slots) || event.slots.length !== 2) {
-    return null;
-  }
+const eventRunId = (event) => (validString(event.run_id) ? event.run_id.trim() : null);
 
-  if (
-    !event.slots.every(
-      (slot) =>
-        isPlainObject(slot) &&
-        (slot.slot === 1 || slot.slot === 2) &&
-        validString(slot.name) &&
-        validOptionalString(slot.version) &&
-        validOptionalString(slot.cmd)
-    )
-  ) {
-    return null;
-  }
+const eventExternalId = (event) =>
+  validString(event.external_id) ? event.external_id.trim() : null;
 
-  const slots = event.slots
-    .map((slot) => ({
+const eventGameIds = (event) => {
+  const externalId = eventExternalId(event);
+
+  return {
+    runId: eventRunId(event),
+    externalId,
+    groupId: externalId ? groupIdFromExternalId(externalId) : null
+  };
+};
+
+const eventSlots = (event) => {
+  if (!Array.isArray(event.slots) || event.slots.length !== 2) return null;
+
+  const slots = event.slots.map((slot) => {
+    if (
+      !onlyFields(slot, SLOT_FIELDS) ||
+      !validInteger(slot.slot, 1, 2) ||
+      !validString(slot.name) ||
+      !validOptionalString(slot.version) ||
+      !validOptionalString(slot.cmd)
+    ) {
+      return null;
+    }
+
+    return {
       slot: slot.slot,
       name: slot.name.trim(),
       version: normalizeVersion(slot.version),
       cmd: slot.cmd ?? null
-    }))
-    .sort((first, second) => first.slot - second.slot);
+    };
+  });
 
-  return new Set(slots.map((slot) => slot.slot)).size === 2 ? slots : null;
+  if (slots.some((slot) => !slot) || new Set(slots.map((slot) => slot.slot)).size !== 2) {
+    return null;
+  }
+
+  return slots.sort((first, second) => first.slot - second.slot);
 };
 
 const validRunStart = (event) =>
-  (event.status === undefined || event.status === 'live') &&
+  onlyFields(event, RUN_START_FIELDS) &&
+  event.status === 'live' &&
+  typeof event.analysis_enabled === 'boolean' &&
   validOptionalInteger(event.total_games, 0) &&
   validOptionalInteger(event.p1_nodes, 0) &&
   validOptionalInteger(event.p2_nodes, 0) &&
@@ -101,41 +198,21 @@ const validRunStart = (event) =>
   validOptionalInteger(event.min_pairs, 0) &&
   validOptionalInteger(event.max_pairs, 0) &&
   validOptionalInteger(event.repeat_index, 0) &&
-  validOptionalInteger(event.seed, 0) &&
+  validNullableInteger(event.seed, 0) &&
   (event.config_label === undefined || typeof event.config_label === 'string');
 
 const validRunUpdate = (event) =>
-  validOptionalStatus(event.status) &&
-  validOptionalInteger(event.games_played, 0) &&
-  validOptionalInteger(event.wins, 0) &&
-  validOptionalInteger(event.losses, 0) &&
-  validOptionalInteger(event.draws, 0) &&
-  validOptionalInteger(event.wall_time_ms, 0) &&
-  validOptionalFinite(event.p1_elo) &&
-  validOptionalFinite(event.p1_erf) &&
-  validOptionalInteger(event.p1_time, 0) &&
-  validOptionalInteger(event.p1_cpu_time, 0) &&
-  validOptionalInteger(event.p1_cpu_wall_time, 0) &&
-  validOptionalInteger(event.p1_crashes, 0) &&
-  validOptionalFinite(event.p1_cma) &&
-  validOptionalFinite(event.p1_blunder) &&
-  validOptionalInteger(event.p1_moves_analyzed, 0) &&
-  validOptionalInteger(event.p1_critical_total, 0) &&
-  validOptionalFinite(event.p2_elo) &&
-  validOptionalFinite(event.p2_erf) &&
-  validOptionalInteger(event.p2_time, 0) &&
-  validOptionalInteger(event.p2_cpu_time, 0) &&
-  validOptionalInteger(event.p2_cpu_wall_time, 0) &&
-  validOptionalInteger(event.p2_crashes, 0) &&
-  validOptionalFinite(event.p2_cma) &&
-  validOptionalFinite(event.p2_blunder) &&
-  validOptionalInteger(event.p2_moves_analyzed, 0) &&
-  validOptionalInteger(event.p2_critical_total, 0);
+  onlyFields(event, RUN_UPDATE_FIELDS) &&
+  (event.status === undefined || STATUSES.has(event.status)) &&
+  RUN_UPDATE_VALUES.every(([field, _stored, type]) =>
+    type === 'integer' ? validOptionalInteger(event[field], 0) : validOptionalFinite(event[field])
+  );
 
-const buildRunRecord = (id, event) => ({
+const runRecord = (id, event) => ({
   id,
   config_label: event.config_label ?? 'live',
   status: 'live',
+  analysis_enabled: event.analysis_enabled ? 1 : 0,
   total_games: event.total_games ?? 0,
   p1_nodes: event.p1_nodes ?? 0,
   p2_nodes: event.p2_nodes ?? 0,
@@ -147,56 +224,71 @@ const buildRunRecord = (id, event) => ({
   seed: event.seed ?? null
 });
 
-const getRunId = (event) => (validString(event.run_id) ? event.run_id.trim() : null);
+const sameRunDeclaration = (existing, event, slots) => {
+  const expected = runRecord(existing.id, event);
 
-const getExternalId = (event) => (validString(event.external_id) ? event.external_id.trim() : null);
-
-const getGameIds = (event) => {
-  const externalId = getExternalId(event);
-
-  return {
-    runId: getRunId(event),
-    externalId,
-    groupId: externalId ? groupIdFromExternalId(externalId) : null
-  };
+  return (
+    existing.config_label === expected.config_label &&
+    Boolean(existing.analysis_enabled) === event.analysis_enabled &&
+    existing.total_games === expected.total_games &&
+    existing.p1_nodes === expected.p1_nodes &&
+    existing.p2_nodes === expected.p2_nodes &&
+    existing.eval_nodes === expected.eval_nodes &&
+    existing.board_size === expected.board_size &&
+    existing.min_pairs === expected.min_pairs &&
+    existing.max_pairs === expected.max_pairs &&
+    existing.repeat_index === expected.repeat_index &&
+    sameValue(existing.seed, expected.seed) &&
+    existing.slot1_name === slots[0].name &&
+    existing.slot1_version === slots[0].version &&
+    sameValue(existing.slot1_cmd, slots[0].cmd) &&
+    existing.slot2_name === slots[1].name &&
+    existing.slot2_version === slots[1].version &&
+    sameValue(existing.slot2_cmd, slots[1].cmd)
+  );
 };
 
-const validGameSlots = (blackSlot, whiteSlot) =>
-  (blackSlot === 1 || blackSlot === 2) &&
-  (whiteSlot === 1 || whiteSlot === 2) &&
-  blackSlot !== whiteSlot;
+const runUpdateRecord = (id, event, existing) => {
+  const record = {
+    id,
+    status: nextStatus(existing.status, event.status)
+  };
+
+  for (const [field, stored] of RUN_UPDATE_VALUES) {
+    record[field] = valueOr(event[field], existing[stored]);
+  }
+
+  return record;
+};
+
+const validGameSlots = (black, white) =>
+  validInteger(black, 1, 2) && validInteger(white, 1, 2) && black !== white;
 
 const validOpeningLength = (value, boardSize) =>
   value === undefined || validInteger(value, 0, boardSize * boardSize);
 
-const validMoveEvent = (event, boardSize) =>
+const validMove = (event, boardSize) =>
+  onlyFields(event, MOVE_FIELDS) &&
   validInteger(event.x, 0, boardSize - 1) &&
   validInteger(event.y, 0, boardSize - 1) &&
   validInteger(event.c, 1, 2);
 
-const parseMovesText = (moves, boardSize) => {
+const parseMoves = (moves, boardSize) => {
   if (moves === '') return [];
-  if (typeof moves !== 'string') {
-    return null;
-  }
+  if (typeof moves !== 'string') return null;
 
   const occupied = new Set();
   const parsed = [];
 
-  for (const [index, move] of moves.split(';').entries()) {
-    if (!/^\d+,\d+,[12]$/.test(move)) {
-      return null;
-    }
+  for (const [index, text] of moves.split(';').entries()) {
+    if (!/^\d+,\d+,[12]$/.test(text)) return null;
 
-    const [x, y, color] = move.split(',').map(Number);
-
+    const [x, y, color] = text.split(',').map(Number);
     const key = `${x},${y}`;
 
     if (
-      x < 0 ||
-      x >= boardSize ||
-      y < 0 ||
-      y >= boardSize ||
+      !validInteger(x, 0, boardSize - 1) ||
+      !validInteger(y, 0, boardSize - 1) ||
       occupied.has(key) ||
       color !== (index % 2) + 1
     ) {
@@ -214,20 +306,8 @@ const parseMovesText = (moves, boardSize) => {
   return parsed;
 };
 
-const hasOccupiedMove = (moves, x, y) =>
-  moves
-    ? moves.split(';').some((move) => {
-        const [moveX, moveY] = move.split(',').map(Number);
-
-        return moveX === x && moveY === y;
-      })
-    : false;
-
-const expectedMoveColor = (moves) => ((moves ? moves.split(';').length : 0) % 2) + 1;
-
-const movesHavePrefix = (currentMoves, nextMoves) => {
+const movesExtend = (currentMoves, nextMoves) => {
   if (!currentMoves) return true;
-  if (nextMoves == null) return true;
   if (!nextMoves) return false;
 
   const current = currentMoves.split(';');
@@ -236,59 +316,113 @@ const movesHavePrefix = (currentMoves, nextMoves) => {
   return current.length <= next.length && current.every((move, index) => move === next[index]);
 };
 
-const resultMatchesFinalMove = (winner, moves, boardSize) => {
-  if (winner === 4) return true;
-  if (moves === '') {
-    return winner !== 3;
+const lineLength = (board, x, y, color, dx, dy) => {
+  let count = 1;
+
+  for (const direction of [-1, 1]) {
+    for (let distance = 1; ; distance += 1) {
+      const nextX = x + dx * distance * direction;
+      const nextY = y + dy * distance * direction;
+
+      if (board.get(`${nextX},${nextY}`) !== color) break;
+      count += 1;
+    }
   }
 
-  const parsed = parseMovesText(moves, boardSize);
-
-  if (!parsed || parsed.length === 0) {
-    return false;
-  }
-
-  if (winner === 3) {
-    return parsed.length === boardSize * boardSize;
-  }
-
-  return parsed[parsed.length - 1].c === winner;
+  return count;
 };
 
-const getGamesOrder = (sort, order) => {
-  const ascending = order === 'asc';
+const winningAt = (board, move) =>
+  DIRECTIONS.some(([dx, dy]) => lineLength(board, move.x, move.y, move.c, dx, dy) >= 5);
 
+const firstWinningMove = (moves) => {
+  const board = new Map();
+
+  for (let index = 0; index < moves.length; index += 1) {
+    const move = moves[index];
+
+    board.set(`${move.x},${move.y}`, move.c);
+
+    if (winningAt(board, move)) {
+      return {
+        index,
+        color: move.c
+      };
+    }
+  }
+
+  return null;
+};
+
+const validResultSequence = (winner, reason, moves, boardSize) => {
+  if (!RESULT_REASONS.has(reason)) return null;
+
+  const parsed = parseMoves(moves, boardSize);
+
+  if (!parsed) return null;
+
+  const firstWinner = firstWinningMove(parsed);
+
+  if (reason === 'line') {
+    return (winner === 1 || winner === 2) &&
+      firstWinner?.color === winner &&
+      firstWinner.index === parsed.length - 1
+      ? parsed
+      : null;
+  }
+
+  if (firstWinner) return null;
+
+  if (reason === 'draw') {
+    return winner === 3 && parsed.length === boardSize * boardSize ? parsed : null;
+  }
+
+  if (reason === 'adjudication') {
+    return winner === 1 || winner === 2 ? parsed : null;
+  }
+
+  return winner === 4 ? parsed : null;
+};
+
+const storedResultReason = (game, boardSize) => {
+  if (game.winner_color === 4) return 'void';
+  if (game.winner_color === 3) return 'draw';
+
+  const parsed = parseMoves(game.moves, boardSize);
+
+  if (!parsed) return null;
+
+  const firstWinner = firstWinningMove(parsed);
+
+  return firstWinner?.color === game.winner_color && firstWinner.index === parsed.length - 1
+    ? 'line'
+    : 'adjudication';
+};
+
+const gameOrder = (sort, order) => {
+  const ascending = order === 'asc';
   const direction = ascending ? 'ASC' : 'DESC';
 
   if (sort === 'moves') {
     return ascending ? 'min_moves ASC, max_id DESC' : 'max_moves DESC, max_id DESC';
   }
 
-  if (sort === 'time') {
-    return `latest_ts ${direction}, max_id DESC`;
-  }
-
-  if (sort === 'status') {
-    return ascending
-      ? 'live_count ASC, hero_wins ASC, max_id DESC'
-      : 'live_count DESC, hero_wins DESC, max_id DESC';
-  }
-
   if (sort === 'duration') {
     return ascending ? 'duration ASC, max_id DESC' : 'duration DESC, max_id DESC';
+  }
+
+  if (sort === 'result') {
+    return ascending
+      ? 'live_count ASC, slot1_wins ASC, max_id DESC'
+      : 'live_count DESC, slot1_wins DESC, max_id DESC';
   }
 
   return `max_id ${direction}`;
 };
 
-const parseGamesCursor = (value, sort) => {
-  if (value === undefined) {
-    return null;
-  }
-
-  if (typeof value !== 'string') {
-    return false;
-  }
+const parseCursor = (value, sort) => {
+  if (value === undefined) return null;
+  if (typeof value !== 'string') return false;
 
   let cursor;
 
@@ -298,35 +432,12 @@ const parseGamesCursor = (value, sort) => {
     return false;
   }
 
-  if (!isPlainObject(cursor) || !validInteger(cursor.id, 1)) {
-    return false;
-  }
+  if (!isObject(cursor) || !validInteger(cursor.id, 1)) return false;
+  if (sort === 'id') return { id: cursor.id };
+  if (!validInteger(cursor.value, 0)) return false;
 
-  if (sort === 'id') {
-    return {
-      id: cursor.id
-    };
-  }
-
-  if (sort === 'time') {
-    if (!validString(cursor.value)) {
-      return false;
-    }
-
-    return {
-      id: cursor.id,
-      value: cursor.value
-    };
-  }
-
-  if (!validInteger(cursor.value, 0)) {
-    return false;
-  }
-
-  if (sort === 'status') {
-    if (!validInteger(cursor.secondary, 0)) {
-      return false;
-    }
+  if (sort === 'result') {
+    if (!validInteger(cursor.secondary, 0)) return false;
 
     return {
       id: cursor.id,
@@ -341,7 +452,7 @@ const parseGamesCursor = (value, sort) => {
   };
 };
 
-const getGamesCursorClause = (sort, order, cursor) => {
+const cursorClause = (sort, order, cursor) => {
   if (!cursor) return '';
 
   if (sort === 'id') {
@@ -350,31 +461,24 @@ const getGamesCursorClause = (sort, order, cursor) => {
 
   const comparison = order === 'asc' ? '>' : '<';
 
-  if (sort === 'status') {
+  if (sort === 'result') {
     return `
       WHERE (
         live_count ${comparison} @cursorValue
         OR (
           live_count = @cursorValue
-          AND hero_wins ${comparison} @cursorSecondary
+          AND slot1_wins ${comparison} @cursorSecondary
         )
         OR (
           live_count = @cursorValue
-          AND hero_wins = @cursorSecondary
+          AND slot1_wins = @cursorSecondary
           AND max_id < @cursorId
         )
       )
     `;
   }
 
-  const field =
-    sort === 'moves'
-      ? order === 'asc'
-        ? 'min_moves'
-        : 'max_moves'
-      : sort === 'time'
-        ? 'latest_ts'
-        : 'duration';
+  const field = sort === 'moves' ? (order === 'asc' ? 'min_moves' : 'max_moves') : 'duration';
 
   return `
     WHERE (
@@ -387,10 +491,102 @@ const getGamesCursorClause = (sort, order, cursor) => {
   `;
 };
 
+const pairResponse = (row) => {
+  if (!row) return null;
+
+  const { games_json: gamesJson, ...pair } = row;
+
+  const games = JSON.parse(gamesJson || '[]').sort((first, second) => {
+    const firstSide = first.black_slot === 1 ? 0 : 1;
+    const secondSide = second.black_slot === 1 ? 0 : 1;
+
+    return firstSide - secondSide || first.id - second.id;
+  });
+
+  return {
+    ...pair,
+    games
+  };
+};
+
+const matchupResponse = (row) => {
+  const {
+    runId,
+    slot1_name: slot1Name,
+    slot1_version: slot1Version,
+    slot1_cmd: slot1Cmd,
+    slot2_name: slot2Name,
+    slot2_version: slot2Version,
+    slot2_cmd: slot2Cmd,
+    live_count: liveCount,
+    ...run
+  } = row;
+
+  return {
+    runId,
+    status: run.status,
+    hero: {
+      id: `${runId}:1`,
+      slot: 1,
+      name: slot1Name,
+      version: slot1Version,
+      cmd: slot1Cmd
+    },
+    villain: {
+      id: `${runId}:2`,
+      slot: 2,
+      name: slot2Name,
+      version: slot2Version,
+      cmd: slot2Cmd
+    },
+    heroWins: run.wins,
+    villainWins: run.losses,
+    draws: run.draws,
+    total: run.games_played,
+    lastActivity: run.updated_at,
+    live_count: liveCount,
+    run: {
+      ...run,
+      id: runId,
+      slot1_name: slot1Name,
+      slot1_version: slot1Version,
+      slot1_cmd: slot1Cmd,
+      slot2_name: slot2Name,
+      slot2_version: slot2Version,
+      slot2_cmd: slot2Cmd
+    }
+  };
+};
+
+const persistGame = (game) =>
+  repository.updateGameFull({
+    id: game.id,
+    moves: game.moves,
+    winner: game.winner_color,
+    duration: game.duration
+  });
+
+const currentPair = (runId, groupId) => {
+  const pair = pairResponse(repository.getPairSummary(runId, groupId));
+
+  if (!pair) {
+    throw new Error(`Pair ${groupId} was not persisted`);
+  }
+
+  return pair;
+};
+
+const sameGameDeclaration = (game, runId, groupId, event) =>
+  String(game.run_id) === String(runId) &&
+  game.group_id === groupId &&
+  game.black_slot === event.black_slot &&
+  game.white_slot === event.white_slot &&
+  game.opening_len === (event.op_len ?? 0);
+
 const createRoutes = (apiKey) => {
   const router = express.Router();
 
-  const auth = (req, res, next) => {
+  const authenticate = (req, res, next) => {
     if (req.headers['x-api-key'] !== apiKey) {
       return res.sendStatus(403);
     }
@@ -401,69 +597,52 @@ const createRoutes = (apiKey) => {
   router.get('/events', (req, res) => sse.addClient(req, res));
 
   router.get('/latest-game', (req, res) => {
-    const row = repo.getLatestGame();
+    const row = repository.getLatestGame();
 
     res.json({
       id: row?.id ?? null
     });
   });
 
-  router.post('/batch', auth, (req, res) => {
+  router.post('/batch', authenticate, (req, res) => {
     const events = req.body;
 
     if (!Array.isArray(events)) {
-      return res.sendStatus(400);
+      return res.status(400).json({
+        error: 'batch must be an array'
+      });
     }
 
     const broadcasts = [];
-    const batchState = new Map();
 
-    const getGameState = (externalId) => {
-      if (batchState.has(externalId)) {
-        return batchState.get(externalId);
-      }
-
-      const game = repo.getGameByExt(externalId);
-
-      if (!game) return null;
-
-      const state = {
-        ...game,
-        modified: false
-      };
-
-      batchState.set(externalId, state);
-
-      return state;
-    };
-
-    const transaction = db.transaction(() => {
+    const apply = db.transaction(() => {
       for (const event of events) {
-        if (!isPlainObject(event) || typeof event.type !== 'string') {
-          continue;
-        }
-
-        const externalId = getExternalId(event);
-
-        if (['start', 'move', 'result'].includes(event.type) && !externalId) {
-          continue;
+        if (!isObject(event) || typeof event.type !== 'string') {
+          reject('invalid event');
         }
 
         if (event.type === 'run_start') {
-          const runId = getRunId(event);
-
-          const slots = getEventSlots(event);
+          const runId = eventRunId(event);
+          const slots = eventSlots(event);
 
           if (!runId || !slots || !validRunStart(event)) {
+            reject('invalid run_start');
+          }
+
+          const existing = repository.getRunById(runId);
+
+          if (existing) {
+            if (!sameRunDeclaration(existing, event, slots)) {
+              reject('conflicting run declaration');
+            }
+
             continue;
           }
 
-          if (!repo.getRunById(runId)) {
-            repo.insertRun(buildRunRecord(runId, event));
-          }
+          repository.insertRun(runRecord(runId, event));
 
           for (const slot of slots) {
-            repo.insertRunSlot({
+            repository.insertRunSlot({
               run_id: runId,
               ...slot
             });
@@ -471,87 +650,70 @@ const createRoutes = (apiKey) => {
 
           broadcasts.push({
             type: 'run_start',
-            run: repo.getRunById(runId)
+            run: repository.getRunById(runId)
           });
 
           continue;
         }
 
         if (event.type === 'run_update') {
-          const runId = getRunId(event);
-
-          const existing = runId ? repo.getRunById(runId) : null;
+          const runId = eventRunId(event);
+          const existing = runId ? repository.getRunById(runId) : null;
 
           if (!existing || !validRunUpdate(event)) {
-            continue;
+            reject('invalid run_update');
           }
 
-          repo.updateRun({
-            id: runId,
-            status: nextStatus(existing.status, event.status),
-            games_played: integerOr(event.games_played, existing.games_played),
-            wins: integerOr(event.wins, existing.wins),
-            losses: integerOr(event.losses, existing.losses),
-            draws: integerOr(event.draws, existing.draws),
-            wall_time_ms: integerOr(event.wall_time_ms, existing.wall_time_ms),
-            p1_elo: finiteOr(event.p1_elo, existing.p1_elo),
-            p1_erf: finiteOr(event.p1_erf, existing.p1_erf),
-            p1_time: integerOr(event.p1_time, existing.p1_total_time_ms),
-            p1_cpu_time: integerOr(event.p1_cpu_time, existing.p1_cpu_time_ms),
-            p1_cpu_wall_time: integerOr(event.p1_cpu_wall_time, existing.p1_cpu_wall_time_ms),
-            p1_crashes: integerOr(event.p1_crashes, existing.p1_crashes),
-            p1_cma: finiteOr(event.p1_cma, existing.p1_cma),
-            p1_blunder: finiteOr(event.p1_blunder, existing.p1_blunder),
-            p1_moves_analyzed: integerOr(event.p1_moves_analyzed, existing.p1_moves_analyzed),
-            p1_critical_total: integerOr(event.p1_critical_total, existing.p1_critical_total),
-            p2_elo: finiteOr(event.p2_elo, existing.p2_elo),
-            p2_erf: finiteOr(event.p2_erf, existing.p2_erf),
-            p2_time: integerOr(event.p2_time, existing.p2_total_time_ms),
-            p2_cpu_time: integerOr(event.p2_cpu_time, existing.p2_cpu_time_ms),
-            p2_cpu_wall_time: integerOr(event.p2_cpu_wall_time, existing.p2_cpu_wall_time_ms),
-            p2_crashes: integerOr(event.p2_crashes, existing.p2_crashes),
-            p2_cma: finiteOr(event.p2_cma, existing.p2_cma),
-            p2_blunder: finiteOr(event.p2_blunder, existing.p2_blunder),
-            p2_moves_analyzed: integerOr(event.p2_moves_analyzed, existing.p2_moves_analyzed),
-            p2_critical_total: integerOr(event.p2_critical_total, existing.p2_critical_total)
-          });
+          if (
+            existing.status !== 'live' &&
+            event.status !== undefined &&
+            event.status !== existing.status
+          ) {
+            reject('terminal run status changed');
+          }
+
+          repository.updateRun(runUpdateRecord(runId, event, existing));
 
           broadcasts.push({
             type: 'run_update',
-            run: repo.getRunById(runId)
+            run: repository.getRunById(runId)
           });
 
           continue;
         }
 
+        const { runId, externalId, groupId } = eventGameIds(event);
+
+        if (!runId || !externalId || !groupId) {
+          reject('invalid game identity');
+        }
+
         if (event.type === 'start') {
-          const { runId, groupId } = getGameIds(event);
+          if (!onlyFields(event, START_FIELDS)) {
+            reject('invalid game start');
+          }
 
-          const run = runId ? repo.getRunById(runId) : null;
+          const run = repository.getRunById(runId);
 
-          if (!run) continue;
+          if (
+            !run ||
+            !validGameSlots(event.black_slot, event.white_slot) ||
+            !validOpeningLength(event.op_len, run.board_size)
+          ) {
+            reject('invalid game start');
+          }
 
-          const existing = repo.getGameByExt(externalId);
+          const existing = repository.getGameByExt(externalId);
 
           if (existing) {
-            if (!batchState.has(externalId)) {
-              batchState.set(externalId, {
-                ...existing,
-                modified: false
-              });
+            if (!sameGameDeclaration(existing, runId, groupId, event)) {
+              reject('conflicting game start');
             }
 
             continue;
           }
 
-          if (
-            !validGameSlots(event.black_slot, event.white_slot) ||
-            !validOpeningLength(event.op_len, run.board_size)
-          ) {
-            continue;
-          }
-
-          const info = repo.insertGame({
+          const info = repository.insertGame({
             external_id: externalId,
             group_id: groupId,
             run_id: runId,
@@ -560,155 +722,187 @@ const createRoutes = (apiKey) => {
             opening_len: event.op_len ?? 0
           });
 
-          const game = repo.getGameDetails(info.lastInsertRowid);
+          const game = repository.getGameDetails(info.lastInsertRowid);
 
-          if (!game) continue;
-
-          batchState.set(externalId, {
-            ...game,
-            modified: false
-          });
+          if (!game) {
+            throw new Error('game start was not persisted');
+          }
 
           broadcasts.push({
             type: 'game_start',
-            game
+            game,
+            pair: currentPair(runId, groupId)
           });
 
           continue;
         }
 
+        const game = repository.getGameByExt(externalId);
+
+        if (!game || String(game.run_id) !== String(runId)) {
+          reject('game does not exist');
+        }
+
+        const run = repository.getRunById(game.run_id);
+
+        if (!run) {
+          reject('game run does not exist');
+        }
+
         if (event.type === 'move') {
-          const runId = getRunId(event);
-
-          const state = getGameState(externalId);
-
-          if (
-            !state ||
-            !runId ||
-            String(state.run_id) !== String(runId) ||
-            state.winner_color !== 0
-          ) {
-            continue;
+          if (!validMove(event, run.board_size)) {
+            reject('invalid move');
           }
 
-          const run = repo.getRunById(state.run_id);
+          const currentMoves = parseMoves(game.moves, run.board_size);
 
-          if (
-            !run ||
-            !validMoveEvent(event, run.board_size) ||
-            hasOccupiedMove(state.moves, event.x, event.y) ||
-            event.c !== expectedMoveColor(state.moves)
-          ) {
-            continue;
+          if (!currentMoves) {
+            throw new Error('stored game contains invalid moves');
+          }
+
+          const occupied = currentMoves.find((move) => move.x === event.x && move.y === event.y);
+
+          if (occupied) {
+            if (occupied.c === event.c) {
+              continue;
+            }
+
+            reject('move targets an occupied coordinate');
+          }
+
+          if (game.winner_color !== 0 || event.c !== (currentMoves.length % 2) + 1) {
+            reject('move does not extend live game');
+          }
+
+          if (firstWinningMove(currentMoves)) {
+            reject('move follows a terminal position');
           }
 
           const move = `${event.x},${event.y},${event.c}`;
 
-          const moveCount = state.moves ? state.moves.split(';').length : 0;
+          game.moves = game.moves ? `${game.moves};${move}` : move;
 
-          state.moves = state.moves ? `${state.moves};${move}` : move;
-
-          state.modified = true;
+          persistGame(game);
 
           broadcasts.push({
             type: 'game_move',
-            id: state.id,
-            group_id: state.group_id,
-            run_id: state.run_id,
-            moves: state.moves,
-            move_count: moveCount + 1
+            id: game.id,
+            external_id: externalId,
+            group_id: game.group_id,
+            run_id: game.run_id,
+            moves: game.moves,
+            move_count: currentMoves.length + 1,
+            pair: currentPair(game.run_id, game.group_id)
           });
 
           continue;
         }
 
         if (event.type === 'result') {
-          const runId = getRunId(event);
-
-          const state = getGameState(externalId);
-
-          if (!state || !runId || String(state.run_id) !== String(runId)) {
-            continue;
-          }
-
-          const run = repo.getRunById(state.run_id);
-
           if (
-            !run ||
-            state.winner_color !== 0 ||
+            !onlyFields(event, RESULT_FIELDS) ||
             !validInteger(event.winner, 1, 4) ||
-            !validOptionalInteger(event.duration, 0) ||
+            !validInteger(event.duration, 0) ||
             typeof event.moves !== 'string' ||
-            parseMovesText(event.moves, run.board_size) === null ||
-            !movesHavePrefix(state.moves, event.moves) ||
-            !resultMatchesFinalMove(event.winner, event.moves, run.board_size)
+            typeof event.reason !== 'string' ||
+            !validOpeningLength(event.op_len, run.board_size)
           ) {
+            reject('invalid result');
+          }
+
+          if (event.op_len !== undefined && event.op_len !== game.opening_len) {
+            reject('result opening length changed');
+          }
+
+          const parsed = validResultSequence(
+            event.winner,
+            event.reason,
+            event.moves,
+            run.board_size
+          );
+
+          if (!parsed) {
+            reject('result does not match move sequence');
+          }
+
+          if (game.winner_color !== 0) {
+            const existingReason = storedResultReason(game, run.board_size);
+
+            if (
+              game.winner_color !== event.winner ||
+              game.moves !== event.moves ||
+              game.duration !== event.duration ||
+              existingReason !== event.reason
+            ) {
+              reject('conflicting game result');
+            }
+
             continue;
           }
 
-          state.winner_color = event.winner;
-
-          const currentCount = state.moves ? state.moves.split(';').length : 0;
-
-          const nextCount = event.moves ? event.moves.split(';').length : 0;
-
-          if (nextCount >= currentCount) {
-            state.moves = event.moves;
+          if (!movesExtend(game.moves, event.moves)) {
+            reject('result does not extend game');
           }
 
-          if (event.duration != null) {
-            state.duration = event.duration;
-          }
+          game.winner_color = event.winner;
+          game.moves = event.moves;
+          game.duration = event.duration;
 
-          state.modified = true;
+          persistGame(game);
 
           broadcasts.push({
             type: 'game_result',
-            id: state.id,
+            id: game.id,
             external_id: externalId,
-            run_id: state.run_id,
-            winner_color: state.winner_color,
-            moves: state.moves,
-            move_count: state.moves ? state.moves.split(';').length : 0,
-            black_slot: state.black_slot,
-            white_slot: state.white_slot,
-            group_id: state.group_id,
-            duration: state.duration
+            run_id: game.run_id,
+            winner_color: game.winner_color,
+            moves: game.moves,
+            move_count: parsed.length,
+            black_slot: game.black_slot,
+            white_slot: game.white_slot,
+            group_id: game.group_id,
+            duration: game.duration,
+            pair: currentPair(game.run_id, game.group_id)
           });
-        }
-      }
 
-      for (const state of batchState.values()) {
-        if (!state.modified) {
           continue;
         }
 
-        repo.updateGameFull({
-          moves: state.moves,
-          winner: state.winner_color,
-          duration: state.duration,
-          id: state.id
-        });
+        reject(`unknown event type: ${event.type}`);
       }
     });
 
-    transaction();
+    try {
+      apply();
+    } catch (error) {
+      if (error instanceof ProtocolError) {
+        return res.status(422).json({
+          error: error.message
+        });
+      }
+
+      console.error('Batch transaction failed:', error.message);
+
+      return res.status(500).json({
+        error: 'batch transaction failed'
+      });
+    }
 
     for (const message of broadcasts) {
       sse.broadcast(message);
     }
 
-    res.json({
+    return res.json({
       success: true
     });
   });
 
-  router.delete('/reset', auth, (req, res) => {
-    db.getDb().exec('DELETE FROM games; DELETE FROM runs;');
+  router.delete('/reset', authenticate, (req, res) => {
+    db.reset();
 
-    const resetEvent = sse.reset();
+    const event = sse.reset();
 
-    res.setHeader('X-Arena-Generation', resetEvent.generation);
+    res.setHeader('X-Arena-Generation', event.generation);
 
     res.json({
       success: true
@@ -716,12 +910,11 @@ const createRoutes = (apiKey) => {
   });
 
   router.get('/runs', (req, res) => {
-    res.json(repo.getAllRuns());
+    res.json(repository.getAllRuns());
   });
 
   router.get('/matchups', (req, res) => {
     const limit = parseQueryInteger(req.query.limit, 20, 1, 100);
-
     const offset = parseQueryInteger(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
 
     if (limit === null || offset === null) {
@@ -730,78 +923,28 @@ const createRoutes = (apiKey) => {
       });
     }
 
-    const result = repo.getRunsForMatchups(limit, offset).map((row) => {
-      const {
-        runId,
-        slot1_name: slot1Name,
-        slot1_version: slot1Version,
-        slot1_cmd: slot1Cmd,
-        slot2_name: slot2Name,
-        slot2_version: slot2Version,
-        slot2_cmd: slot2Cmd,
-        live_count: liveCount,
-        ...run
-      } = row;
-
-      return {
-        runId,
-        status: run.status,
-        hero: {
-          id: `${runId}:1`,
-          slot: 1,
-          name: slot1Name,
-          version: slot1Version,
-          cmd: slot1Cmd
-        },
-        villain: {
-          id: `${runId}:2`,
-          slot: 2,
-          name: slot2Name,
-          version: slot2Version,
-          cmd: slot2Cmd
-        },
-        heroWins: run.wins,
-        villainWins: run.losses,
-        draws: run.draws,
-        total: run.games_played,
-        lastActivity: run.updated_at,
-        live_count: liveCount,
-        run: {
-          ...run,
-          id: runId,
-          slot1_name: slot1Name,
-          slot1_version: slot1Version,
-          slot1_cmd: slot1Cmd,
-          slot2_name: slot2Name,
-          slot2_version: slot2Version,
-          slot2_cmd: slot2Cmd
-        }
-      };
-    });
-
-    res.json(result);
+    return res.json(repository.getRunsForMatchups(limit, offset).map(matchupResponse));
   });
 
   router.get('/games', (req, res) => {
-    const { run_id: runId, hero_slot: heroSlot } = req.query;
+    const runId = req.query.run_id;
 
-    if (!validString(runId) || (heroSlot !== '1' && heroSlot !== '2')) {
+    if (
+      !Object.keys(req.query).every((field) => GAME_QUERY_FIELDS.has(field)) ||
+      !validString(runId)
+    ) {
       return res.status(400).json({
-        error: 'run_id and hero_slot are required'
+        error: 'run_id is required'
       });
     }
 
     const limit = parseQueryInteger(req.query.limit, 50, 1, 100);
-
     const offset = parseQueryInteger(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
-
     const sort = req.query.sort ?? 'id';
-
     const order = req.query.order ?? 'desc';
-
     const cursor =
-      typeof sort === 'string' && MATCHUP_SORTS.has(sort)
-        ? parseGamesCursor(req.query.cursor, sort)
+      typeof sort === 'string' && GAME_SORTS.has(sort)
+        ? parseCursor(req.query.cursor, sort)
         : false;
 
     if (
@@ -810,7 +953,7 @@ const createRoutes = (apiKey) => {
       cursor === false ||
       (cursor && offset !== 0) ||
       typeof sort !== 'string' ||
-      !MATCHUP_SORTS.has(sort) ||
+      !GAME_SORTS.has(sort) ||
       typeof order !== 'string' ||
       !ORDERS.has(order)
     ) {
@@ -820,46 +963,30 @@ const createRoutes = (apiKey) => {
     }
 
     try {
-      const rows = repo.getGamesDynamic({
+      const rows = repository.getGamesDynamic({
         runId: runId.trim(),
-        heroSlot: Number(heroSlot),
         limit,
         offset,
         cursor,
-        cursorClause: getGamesCursorClause(sort, order, cursor),
-        orderBy: getGamesOrder(sort, order)
+        cursorClause: cursorClause(sort, order, cursor),
+        orderBy: gameOrder(sort, order)
       });
 
-      res.json(
-        rows.map((row) => ({
-          ...row,
-          games: JSON.parse(row.games_json)
-        }))
-      );
+      return res.json(rows.map(pairResponse));
     } catch (error) {
       console.error('Games query failed:', error.message);
 
-      res.status(500).json({
+      return res.status(500).json({
         error: 'failed to query games'
       });
     }
   });
 
   router.get('/game/:id', (req, res) => {
-    const requestedGeneration = req.query.g;
-
-    if (requestedGeneration !== undefined) {
-      if (typeof requestedGeneration !== 'string' || requestedGeneration.length === 0) {
-        return res.status(400).json({
-          error: 'invalid viewer generation'
-        });
-      }
-
-      if (requestedGeneration !== db.getGeneration()) {
-        return res.status(409).json({
-          error: 'stale viewer generation'
-        });
-      }
+    if (Object.keys(req.query).length > 0) {
+      return res.status(400).json({
+        error: 'invalid game query'
+      });
     }
 
     const id = parseQueryInteger(req.params.id, null, 1, Number.MAX_SAFE_INTEGER);
@@ -870,13 +997,13 @@ const createRoutes = (apiKey) => {
       });
     }
 
-    const game = repo.getGameDetails(id);
+    const game = repository.getGameDetails(id);
 
     if (!game) {
       return res.sendStatus(404);
     }
 
-    res.json(game);
+    return res.json(game);
   });
 
   return router;

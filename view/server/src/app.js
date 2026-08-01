@@ -1,15 +1,15 @@
-import express from 'express';
 import cors from 'cors';
-import * as db from './db.js';
-import * as repo from './repository.js';
-import createRoutes from './routes.js';
+import express from 'express';
 import { DB_PATH, getApiKey } from './config.js';
+import * as db from './db.js';
+import * as repository from './repository.js';
+import createRoutes from './routes.js';
 
 const createApp = (dbPath = DB_PATH) => {
   const apiKey = getApiKey();
   const database = db.init(dbPath);
 
-  repo.init(database);
+  repository.init(database);
 
   const app = express();
 

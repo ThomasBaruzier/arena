@@ -1,4 +1,4 @@
-import { getGeneration, rotateGeneration } from './db.js';
+import { getGeneration } from './db.js';
 
 class SSEService {
   constructor() {
@@ -42,13 +42,14 @@ class SSEService {
 
     const message = `data: ${JSON.stringify(payload)}\n\n`;
 
-    this.clients.forEach((client) => client.write(message));
+    for (const client of this.clients) {
+      client.write(message);
+    }
 
     return payload;
   }
 
   reset() {
-    rotateGeneration();
     this.eventSeq = 0;
 
     return this.broadcast({
@@ -57,11 +58,15 @@ class SSEService {
   }
 
   shutdown() {
-    this.heartbeats.forEach((heartbeat) => clearInterval(heartbeat));
+    for (const heartbeat of this.heartbeats.values()) {
+      clearInterval(heartbeat);
+    }
 
     this.heartbeats.clear();
 
-    this.clients.forEach((client) => client.end());
+    for (const client of this.clients) {
+      client.end();
+    }
 
     this.clients.clear();
   }

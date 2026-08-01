@@ -21,6 +21,73 @@ const runProjection = `
   s2.cmd AS slot2_cmd
 `;
 
+const moveCount = `
+  CASE
+    WHEN g.moves = '' THEN 0
+    ELSE LENGTH(g.moves)
+      - LENGTH(REPLACE(g.moves, ';', ''))
+      + 1
+  END
+`;
+
+const slot1Won = `
+  CASE
+    WHEN g.winner_color NOT IN (0, 3, 4)
+      AND (
+        (
+          g.winner_color = 1
+          AND g.black_slot = 1
+        )
+        OR (
+          g.winner_color = 2
+          AND g.white_slot = 1
+        )
+      )
+    THEN 1
+    ELSE 0
+  END
+`;
+
+const pairAggregateSql = (where) => `
+  SELECT
+    g.group_id,
+    COUNT(*) AS pair_size,
+    MAX(g.timestamp) AS latest_ts,
+    MAX(g.id) AS max_id,
+    MAX(${moveCount}) AS max_moves,
+    MIN(${moveCount}) AS min_moves,
+    SUM(
+      CASE
+        WHEN g.winner_color = 0
+        THEN 1
+        ELSE 0
+      END
+    ) AS live_count,
+    MAX(g.duration) AS duration,
+    SUM(${slot1Won}) AS slot1_wins,
+    json_group_array(
+      json_object(
+        'id', g.id,
+        'external_id', g.external_id,
+        'group_id', g.group_id,
+        'run_id', g.run_id,
+        'timestamp', g.timestamp,
+        'winner_color', g.winner_color,
+        'move_count', ${moveCount},
+        'black_slot', g.black_slot,
+        'white_slot', g.white_slot,
+        'board_size', r.board_size,
+        'opening_len', g.opening_len,
+        'duration', g.duration
+      )
+    ) AS games_json
+  FROM games g
+  JOIN runs r
+    ON r.id = g.run_id
+  WHERE ${where}
+  GROUP BY g.group_id
+`;
+
 const init = (db) => {
   database = db;
 
@@ -30,6 +97,7 @@ const init = (db) => {
         id,
         config_label,
         status,
+        analysis_enabled,
         total_games,
         p1_nodes,
         p2_nodes,
@@ -43,6 +111,7 @@ const init = (db) => {
         @id,
         @config_label,
         @status,
+        @analysis_enabled,
         @total_games,
         @p1_nodes,
         @p2_nodes,
@@ -90,7 +159,11 @@ const init = (db) => {
         @opening_len
       )
     `),
-    getGameByExt: db.prepare('SELECT * FROM games WHERE external_id = ?'),
+    getGameByExt: db.prepare(`
+      SELECT *
+      FROM games
+      WHERE external_id = ?
+    `),
     updateGameFull: db.prepare(`
       UPDATE games SET
         moves = @moves,
@@ -119,7 +192,8 @@ const init = (db) => {
         ws.version AS white_ver,
         ws.cmd AS white_cmd
       FROM games g
-      JOIN runs r ON r.id = g.run_id
+      JOIN runs r
+        ON r.id = g.run_id
       JOIN run_slots bs
         ON bs.run_id = g.run_id
         AND bs.slot = g.black_slot
@@ -179,10 +253,17 @@ const init = (db) => {
       LEFT JOIN run_slots s2
         ON s2.run_id = r.id
         AND s2.slot = 2
-      ORDER BY r.updated_at DESC, r.id DESC
+      ORDER BY
+        r.updated_at DESC,
+        r.id DESC
       LIMIT 50
     `),
-    getLatestGame: db.prepare('SELECT id FROM games ORDER BY id DESC LIMIT 1'),
+    getLatestGame: db.prepare(`
+      SELECT id
+      FROM games
+      ORDER BY id DESC
+      LIMIT 1
+    `),
     getRunsForMatchups: db.prepare(`
       SELECT
         ${runProjection},
@@ -200,89 +281,29 @@ const init = (db) => {
       JOIN run_slots s2
         ON s2.run_id = r.id
         AND s2.slot = 2
-      ORDER BY r.updated_at DESC, r.id DESC
+      ORDER BY
+        r.updated_at DESC,
+        r.id DESC
       LIMIT @limit OFFSET @offset
-    `)
+    `),
+    getPairSummary: db.prepare(
+      pairAggregateSql(`
+        g.run_id = @runId
+        AND g.group_id = @groupId
+      `)
+    )
   };
 };
 
-const getGamesDynamic = ({ runId, heroSlot, limit, offset, cursor, cursorClause, orderBy }) => {
+const getGamesDynamic = ({ runId, limit, offset, cursor, cursorClause, orderBy }) => {
   if (!database) {
     throw new Error('Repository not initialized');
   }
 
   const sql = `
-    SELECT * FROM (
-      SELECT
-        g.group_id,
-        COUNT(*) AS pair_size,
-        MAX(g.timestamp) AS latest_ts,
-        MAX(g.id) AS max_id,
-        MAX(
-          CASE
-            WHEN g.moves = '' THEN 0
-            ELSE LENGTH(g.moves)
-              - LENGTH(REPLACE(g.moves, ';', ''))
-              + 1
-          END
-        ) AS max_moves,
-        MIN(
-          CASE
-            WHEN g.moves = '' THEN 0
-            ELSE LENGTH(g.moves)
-              - LENGTH(REPLACE(g.moves, ';', ''))
-              + 1
-          END
-        ) AS min_moves,
-        SUM(
-          CASE
-            WHEN g.winner_color = 0 THEN 1
-            ELSE 0
-          END
-        ) AS live_count,
-        MAX(g.duration) AS duration,
-        SUM(
-          CASE
-            WHEN g.winner_color NOT IN (0, 3, 4)
-              AND (
-                (
-                  g.winner_color = 1
-                  AND g.black_slot = @heroSlot
-                )
-                OR (
-                  g.winner_color = 2
-                  AND g.white_slot = @heroSlot
-                )
-              )
-            THEN 1
-            ELSE 0
-          END
-        ) AS hero_wins,
-        json_group_array(
-          json_object(
-            'id', g.id,
-            'winner_color', g.winner_color,
-            'move_count',
-              CASE
-                WHEN g.moves = '' THEN 0
-                ELSE LENGTH(g.moves)
-                  - LENGTH(REPLACE(g.moves, ';', ''))
-                  + 1
-              END,
-            'timestamp', g.timestamp,
-            'external_id', g.external_id,
-            'black_slot', g.black_slot,
-            'white_slot', g.white_slot,
-            'run_id', g.run_id,
-            'board_size', r.board_size,
-            'opening_len', g.opening_len,
-            'duration', g.duration
-          )
-        ) AS games_json
-      FROM games g
-      JOIN runs r ON r.id = g.run_id
-      WHERE g.run_id = @runId
-      GROUP BY g.group_id
+    SELECT *
+    FROM (
+      ${pairAggregateSql('g.run_id = @runId')}
     )
     ${cursorClause}
     ORDER BY ${orderBy}
@@ -291,7 +312,6 @@ const getGamesDynamic = ({ runId, heroSlot, limit, offset, cursor, cursorClause,
 
   const parameters = {
     runId,
-    heroSlot,
     limit,
     offset
   };
@@ -312,16 +332,37 @@ const getGamesDynamic = ({ runId, heroSlot, limit, offset, cursor, cursorClause,
 };
 
 export { init };
+
 export const insertRun = (run) => statements.insertRun.run(run);
+
 export const insertRunSlot = (slot) => statements.insertRunSlot.run(slot);
+
 export const insertGame = (game) => statements.insertGame.run(game);
+
 export const getGameByExt = (id) => statements.getGameByExt.get(id);
+
 export const updateGameFull = (game) => statements.updateGameFull.run(game);
+
 export const getGameDetails = (id) => statements.getGameDetails.get(id);
+
 export const updateRun = (run) => statements.updateRun.run(run);
+
 export const getRunById = (id) => statements.getRunById.get(id);
+
 export const getAllRuns = () => statements.getAllRuns.all();
+
 export const getLatestGame = () => statements.getLatestGame.get();
+
 export const getRunsForMatchups = (limit, offset) =>
-  statements.getRunsForMatchups.all({ limit, offset });
+  statements.getRunsForMatchups.all({
+    limit,
+    offset
+  });
+
+export const getPairSummary = (runId, groupId) =>
+  statements.getPairSummary.get({
+    runId,
+    groupId
+  });
+
 export { getGamesDynamic };
