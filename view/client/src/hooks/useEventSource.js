@@ -4,13 +4,13 @@ export function useEventSource(url) {
   const listeners = useRef(new Set());
   const source = useRef(null);
   const reconnectTimer = useRef(null);
+  const opened = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const [generation, setGeneration] = useState(null);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
 
   useEffect(() => {
     let mounted = true;
-    let opened = false;
 
     const connect = () => {
       if (!mounted) return;
@@ -31,10 +31,10 @@ export function useEventSource(url) {
 
         setIsConnected(true);
 
-        if (opened) {
+        if (opened.current) {
           setConnectionEpoch((current) => current + 1);
         } else {
-          opened = true;
+          opened.current = true;
         }
       };
 
@@ -50,7 +50,9 @@ export function useEventSource(url) {
             setGeneration(data.generation);
           }
 
-          listeners.current.forEach((listener) => listener(data));
+          for (const listener of listeners.current) {
+            listener(data);
+          }
         } catch (error) {
           console.warn('SSE error:', error);
         }
@@ -72,7 +74,9 @@ export function useEventSource(url) {
 
     return () => {
       mounted = false;
+
       clearTimeout(reconnectTimer.current);
+
       source.current?.close();
       source.current = null;
     };

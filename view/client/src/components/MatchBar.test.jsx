@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import MatchBar from './MatchBar';
 
@@ -6,34 +6,53 @@ const game = {
   black_slot: 2,
   white_slot: 1,
   black_name: 'Beta',
-  black_ver: '2.0',
+  black_ver: '2026.11',
   white_name: 'Alpha',
   white_ver: '1.0',
   winner_color: 2
 };
 
 describe('MatchBar', () => {
-  it('keeps canonical slot order when colors reverse', () => {
+  it('keeps canonical slot order with mirrored identities', () => {
     render(<MatchBar game={game} />);
 
     const bar = screen.getByText('1 – 0').closest('.match-bar');
+
     const text = bar.textContent;
 
     expect(text.indexOf('1.0')).toBeLessThan(text.indexOf('Alpha'));
+
     expect(text.indexOf('Alpha')).toBeLessThan(text.indexOf('1 – 0'));
+
     expect(text.indexOf('1 – 0')).toBeLessThan(text.indexOf('Beta'));
-    expect(text.indexOf('Beta')).toBeLessThan(text.indexOf('2.0'));
+
+    expect(text.indexOf('Beta')).toBeLessThan(text.indexOf('2026.11'));
   });
 
-  it('highlights only the winning slot name', () => {
+  it('maps selected-game colors', () => {
+    render(<MatchBar game={game} />);
+
+    const left = screen.getByText('Alpha').closest('.player-side');
+
+    const right = screen.getByText('Beta').closest('.player-side');
+
+    expect(within(left).getByLabelText('white stone')).toBeInTheDocument();
+
+    expect(within(right).getByLabelText('black stone')).toBeInTheDocument();
+  });
+
+  it('highlights only the winning name', () => {
     render(<MatchBar game={game} />);
 
     expect(screen.getByText('Alpha')).toHaveClass('gold');
+
     expect(screen.getByText('Beta')).not.toHaveClass('gold');
+
+    expect(screen.getByText('1.0')).not.toHaveClass('gold');
   });
 
-  it('renders live state centrally', () => {
-    render(
+  it('renders live, draw, and void centrally', () => {
+    const { rerender } = render(
       <MatchBar
         game={{
           ...game,
@@ -42,11 +61,9 @@ describe('MatchBar', () => {
       />
     );
 
-    expect(screen.getByText('LIVE')).toBeInTheDocument();
-  });
+    expect(screen.getByText('LIVE').closest('.score-center')).toBeInTheDocument();
 
-  it('renders draws and void results', () => {
-    const { rerender } = render(
+    rerender(
       <MatchBar
         game={{
           ...game,

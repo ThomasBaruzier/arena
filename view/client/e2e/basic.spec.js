@@ -2,112 +2,277 @@ import { expect, test } from '@playwright/test';
 
 const GENERATION = 'viewer-1';
 
-const game = (overrides = {}) => ({
-  id: 100,
-  run_id: 'run1',
-  group_id: 'run1_1',
-  board_size: 20,
-  moves: '10,10,1;11,11,2',
-  black_slot: 1,
-  white_slot: 2,
-  black_name: 'BotA',
-  white_name: 'BotB',
-  black_ver: '1.0',
-  white_ver: '2.0',
-  winner_color: 0,
-  timestamp: '2024-01-01T12:00:00Z',
-  ...overrides
-});
-
-const run = (overrides = {}) => ({
-  id: 'run1',
+const run = (id, overrides = {}) => ({
+  id,
   status: 'live',
+  analysis_enabled: 1,
   total_games: 20,
   games_played: 17,
+  wins: 10,
+  losses: 5,
+  draws: 2,
   p1_elo: 1024,
-  p1_erf: 61.2,
-  p1_total_time_ms: 12000,
-  p1_eff: 91.5,
-  p1_cma: 83.4,
-  p1_blunder: 4.1,
-  p1_moves_analyzed: 20,
-  p1_critical_total: 5,
-  p1_crashes: 0,
   p2_elo: 976,
+  p1_total_time_ms: 100 * 60 * 60 * 1000,
+  p2_total_time_ms: (99 * 60 * 60 + 59 * 60) * 1000,
+  p1_erf: 61.2,
   p2_erf: 38.8,
-  p2_total_time_ms: 11000,
-  p2_eff: 88.2,
+  p1_eff: 94.1,
+  p2_eff: 87.6,
+  p1_cma: 83.4,
   p2_cma: 79.2,
+  p1_blunder: 4.1,
   p2_blunder: 6.3,
+  p1_moves_analyzed: 20,
   p2_moves_analyzed: 18,
+  p1_critical_total: 5,
   p2_critical_total: 4,
+  p1_crashes: 0,
   p2_crashes: 0,
+  slot1_name: id === 'run1' ? 'Alpha' : 'Gamma',
+  slot1_version: id === 'run1' ? '1.4' : '3.0',
+  slot2_name: id === 'run1' ? 'Beta' : 'Delta',
+  slot2_version: id === 'run1' ? '2.1' : '4.0',
   ...overrides
 });
 
-const boxesOverlap = (first, second) =>
-  first.x < second.x + second.width &&
-  first.x + first.width > second.x &&
-  first.y < second.y + second.height &&
-  first.y + first.height > second.y;
+const matchup = (value) => ({
+  runId: value.id,
+  status: value.status,
+  hero: {
+    id: `${value.id}:1`,
+    slot: 1,
+    name: value.slot1_name,
+    version: value.slot1_version
+  },
+  villain: {
+    id: `${value.id}:2`,
+    slot: 2,
+    name: value.slot2_name,
+    version: value.slot2_version
+  },
+  heroWins: value.wins,
+  villainWins: value.losses,
+  draws: value.draws,
+  total: value.games_played,
+  live_count: value.status === 'live' ? 1 : 0,
+  run: value
+});
 
-const expectMenuLayout = async (page) => {
-  const topbar = page.locator('.topbar');
-  const menu = page.getByRole('button', {
-    name: 'Toggle tournaments'
+const selectedGame = (overrides = {}) => ({
+  id: 100,
+  run_id: 'run1',
+  group_id: 'run1_100',
+  board_size: 20,
+  moves: '10,10,1;11,11,2;12,10,1',
+  black_slot: 1,
+  white_slot: 2,
+  black_name: 'Alpha',
+  white_name: 'Beta',
+  black_ver: '2026.11',
+  white_ver: '1.4',
+  winner_color: 0,
+  timestamp: '2026-01-01T12:00:00Z',
+  duration: 1234,
+  ...overrides
+});
+
+const historyGame = (runId, groupId, id, blackSlot, overrides = {}) => ({
+  id,
+  external_id: `${groupId}_${blackSlot === 1 ? 0 : 1}`,
+  group_id: groupId,
+  run_id: runId,
+  timestamp: '2026-01-01T12:00:00Z',
+  winner_color: 1,
+  move_count: 1,
+  black_slot: blackSlot,
+  white_slot: blackSlot === 1 ? 2 : 1,
+  board_size: 20,
+  opening_len: 0,
+  duration: 1000,
+  ...overrides
+});
+
+const pair = (runId, id, overrides = {}) => {
+  const groupId = `${runId}_${id}`;
+
+  const game = historyGame(runId, groupId, id, 1, {
+    move_count: 3,
+    duration: 1300
   });
-  const leftPlayer = page.locator('.match-bar .player-left');
-  const score = page.locator('.match-bar .score-center');
-  const rightPlayer = page.locator('.match-bar .player-right');
 
-  await expect(topbar).toBeVisible();
-  await expect(menu).toBeVisible();
-
-  const [topbarBox, menuBox, leftBox, scoreBox, rightBox] = await Promise.all([
-    topbar.boundingBox(),
-    menu.boundingBox(),
-    leftPlayer.boundingBox(),
-    score.boundingBox(),
-    rightPlayer.boundingBox()
-  ]);
-
-  expect(topbarBox).not.toBeNull();
-  expect(menuBox).not.toBeNull();
-  expect(leftBox).not.toBeNull();
-  expect(scoreBox).not.toBeNull();
-  expect(rightBox).not.toBeNull();
-
-  expect(menuBox.x).toBeGreaterThanOrEqual(topbarBox.x - 0.5);
-  expect(menuBox.y).toBeGreaterThanOrEqual(topbarBox.y - 0.5);
-  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(topbarBox.x + topbarBox.width + 0.5);
-  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(topbarBox.y + topbarBox.height + 0.5);
-
-  expect(boxesOverlap(menuBox, leftBox)).toBe(false);
-  expect(boxesOverlap(menuBox, scoreBox)).toBe(false);
-  expect(boxesOverlap(menuBox, rightBox)).toBe(false);
+  return {
+    group_id: groupId,
+    pair_size: 1,
+    latest_ts: '2026-01-01T12:00:00Z',
+    max_id: id,
+    min_moves: 3,
+    max_moves: 3,
+    live_count: 0,
+    duration: 1300,
+    slot1_wins: 1,
+    games: [game],
+    ...overrides
+  };
 };
 
-test.describe('Arena Viewer E2E', () => {
-  let runRequests;
-  let matchupRequests;
+const terminalGame = () =>
+  selectedGame({
+    moves: '0,0,1;0,1,2;1,0,1;1,1,2;2,0,1;2,1,2;3,0,1;3,1,2;4,0,1',
+    winner_color: 1
+  });
+
+const orderPairs = (values, sort, ascending) =>
+  [...values].sort((first, second) => {
+    let firstValue;
+    let secondValue;
+
+    if (sort === 'moves') {
+      firstValue = ascending ? first.min_moves : first.max_moves;
+      secondValue = ascending ? second.min_moves : second.max_moves;
+    } else if (sort === 'duration') {
+      firstValue = first.duration;
+      secondValue = second.duration;
+    } else if (sort === 'result') {
+      firstValue = first.live_count;
+      secondValue = second.live_count;
+
+      if (firstValue === secondValue) {
+        firstValue = first.slot1_wins;
+        secondValue = second.slot1_wins;
+      }
+    } else {
+      firstValue = first.max_id;
+      secondValue = second.max_id;
+    }
+
+    if (firstValue !== secondValue) {
+      return ascending ? firstValue - secondValue : secondValue - firstValue;
+    }
+
+    return sort === 'id'
+      ? first.group_id.localeCompare(second.group_id)
+      : second.max_id - first.max_id;
+  });
+
+const phase = async (group) =>
+  group.evaluate((element) =>
+    ['closed', 'preparing', 'opening', 'open', 'closing'].find((value) =>
+      element.classList.contains(value)
+    )
+  );
+
+const expectPhase = async (group, value) => {
+  await expect.poll(() => phase(group)).toBe(value);
+};
+
+const openGroup = async (group) => {
+  await group.locator('.group-header').click();
+  await expectPhase(group, 'open');
+};
+
+test.describe('Arena viewer', () => {
+  let firstRun;
+  let secondRun;
+  let histories;
+  let historyRequests;
+  let holdRun2;
+  let releaseRun2;
+  let failRun2;
 
   test.beforeEach(async ({ page }) => {
-    runRequests = 0;
-    matchupRequests = 0;
+    firstRun = run('run1');
 
-    await page.route('/api/events', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body: `data: ${JSON.stringify({
-          type: 'connected',
-          seq: 0,
-          generation: GENERATION
-        })}\n\n`
-      });
+    secondRun = run('run2', {
+      games_played: 4,
+      wins: 2,
+      losses: 1,
+      draws: 1,
+      p2_crashes: 2
     });
 
-    await page.route('/api/latest-game', async (route) => {
+    histories = {
+      run1: [
+        pair('run1', 100),
+        pair('run1', 90, {
+          min_moves: 8,
+          max_moves: 8,
+          duration: 900,
+          games: [
+            historyGame('run1', 'run1_90', 90, 2, {
+              move_count: 8,
+              duration: 900,
+              winner_color: 2
+            })
+          ]
+        })
+      ],
+      run2: [pair('run2', 200)]
+    };
+
+    historyRequests = [];
+    holdRun2 = false;
+    releaseRun2 = null;
+    failRun2 = false;
+
+    await page.addInitScript(
+      ({ generation }) => {
+        const sources = [];
+
+        class ArenaEventSource {
+          constructor() {
+            this.onopen = null;
+            this.onmessage = null;
+            this.onerror = null;
+            this.closed = false;
+
+            sources.push(this);
+
+            queueMicrotask(() => {
+              if (this.closed) {
+                return;
+              }
+
+              this.onopen?.();
+
+              this.onmessage?.({
+                data: JSON.stringify({
+                  type: 'connected',
+                  seq: 0,
+                  generation
+                })
+              });
+            });
+          }
+
+          close() {
+            this.closed = true;
+          }
+        }
+
+        window.EventSource = ArenaEventSource;
+
+        window.__arenaEmit = (message) => {
+          for (const source of sources) {
+            if (source.closed) {
+              continue;
+            }
+
+            source.onmessage?.({
+              data: JSON.stringify({
+                ...message,
+                generation
+              })
+            });
+          }
+        };
+      },
+      {
+        generation: GENERATION
+      }
+    );
+
+    await page.route('**/api/latest-game', async (route) => {
       await route.fulfill({
         headers: {
           'x-arena-generation': GENERATION
@@ -118,514 +283,361 @@ test.describe('Arena Viewer E2E', () => {
       });
     });
 
-    await page.route('**/api/game/100*', async (route) => {
+    await page.route('**/api/game/100', async (route) => {
       await route.fulfill({
         headers: {
           'x-arena-generation': GENERATION
         },
-        json: game()
+        json: selectedGame()
       });
     });
 
-    await page.route('/api/matchups*', async (route) => {
-      matchupRequests += 1;
-
+    await page.route('**/api/runs', async (route) => {
       await route.fulfill({
-        json: [
-          {
-            runId: 'run1',
-            status: 'live',
-            hero: {
-              id: 'run1:1',
-              slot: 1,
-              name: 'BotA',
-              version: '1.0'
-            },
-            villain: {
-              id: 'run1:2',
-              slot: 2,
-              name: 'BotB',
-              version: '2.0'
-            },
-            heroWins: 10,
-            villainWins: 5,
-            draws: 2,
-            total: 17,
-            live_count: 1,
-            lastActivity: '2024-01-01T12:00:00Z'
+        json: [firstRun, secondRun]
+      });
+    });
+
+    await page.route('**/api/matchups*', async (route) => {
+      await route.fulfill({
+        json: [matchup(firstRun), matchup(secondRun)]
+      });
+    });
+
+    await page.route('**/api/games*', async (route) => {
+      const url = new URL(route.request().url());
+      const runId = url.searchParams.get('run_id');
+
+      historyRequests.push(url.href);
+
+      if (runId === 'run2' && holdRun2) {
+        await new Promise((resolve) => {
+          releaseRun2 = resolve;
+        });
+      }
+
+      if (runId === 'run2' && failRun2) {
+        await route.fulfill({
+          status: 500,
+          json: {
+            error: 'failed'
           }
-        ]
-      });
-    });
+        });
 
-    await page.route('/api/runs', async (route) => {
-      runRequests += 1;
+        return;
+      }
+
+      const sort = url.searchParams.get('sort') || 'id';
+      const ascending = url.searchParams.get('order') === 'asc';
 
       await route.fulfill({
-        json: [run()]
-      });
-    });
-
-    await page.route('/api/games*', async (route) => {
-      await route.fulfill({
-        json: [
-          {
-            group_id: 'run1_1',
-            games: [
-              {
-                id: 100,
-                external_id: 'run1_1_0',
-                run_id: 'run1',
-                black_slot: 1,
-                white_slot: 2,
-                winner_color: 0,
-                move_count: 2,
-                timestamp: '2024-01-01T12:00:00Z'
-              }
-            ]
-          }
-        ]
+        json: orderPairs(histories[runId] || [], sort, ascending)
       });
     });
 
     await page.goto('/');
   });
 
-  test('loads the initial layout', async ({ page }) => {
-    await expect(page.locator('.logo')).toBeVisible();
-    await expect(page.locator('.sidebar')).toBeVisible();
-    await expect(page.getByTestId('player-row-1')).toContainText('BotA');
-    await expect(page.getByTestId('player-row-2')).toContainText('BotB');
+  test('uses the fixed shell and clean route', async ({ page }) => {
+    await expect(page).toHaveURL('http://127.0.0.1:4173/100');
+
+    expect(new URL(page.url()).search).toBe('');
+
+    await expect(page.locator('#tournament-sidebar')).toHaveCSS('width', '300px');
+    await expect(page.locator('.topbar')).toHaveCSS('height', '52px');
   });
 
-  test('keeps the desktop menu inside the top bar without overlap', async ({ page }) => {
-    await expect(page.locator('.match-bar')).toContainText('BotA');
-    await expectMenuLayout(page);
-  });
+  test('uses equal desktop version and name typography', async ({ page }) => {
+    const version = page.locator('.match-bar .p-ver').first();
+    const name = page.locator('.match-bar .p-name').first();
 
-  test('fetches initial collections only once', async ({ page }) => {
-    await expect(page.getByTestId('player-row-1')).toContainText('BotA');
+    await expect(version).toBeVisible();
+    await expect(name).toBeVisible();
 
-    expect(runRequests).toBe(1);
-    expect(matchupRequests).toBe(1);
-  });
+    const typography = await page.evaluate(
+      ({ version, name }) => {
+        const versionStyle = getComputedStyle(version);
+        const nameStyle = getComputedStyle(name);
 
-  test('refreshes collections once after a real reconnect', async ({ page }) => {
-    await expect(page.getByTestId('player-row-1')).toContainText('BotA');
-
-    await expect
-      .poll(() => runRequests, {
-        timeout: 5000
-      })
-      .toBe(2);
-
-    await expect
-      .poll(() => matchupRequests, {
-        timeout: 5000
-      })
-      .toBe(2);
-  });
-
-  test('scopes selected game URLs to the viewer generation', async ({ page }) => {
-    await expect(page).toHaveURL(new RegExp(`/100\\?g=${GENERATION}$`));
-
-    const requests = [];
-
-    page.on('request', (request) => {
-      if (request.url().includes('/api/game/100')) {
-        requests.push(request.url());
+        return {
+          versionFamily: versionStyle.fontFamily,
+          nameFamily: nameStyle.fontFamily,
+          versionSize: versionStyle.fontSize,
+          nameSize: nameStyle.fontSize,
+          versionLine: versionStyle.lineHeight,
+          nameLine: nameStyle.lineHeight
+        };
+      },
+      {
+        version: await version.elementHandle(),
+        name: await name.elementHandle()
       }
+    );
+
+    expect(typography.versionFamily).toBe(typography.nameFamily);
+    expect(typography.versionSize).toBe(typography.nameSize);
+    expect(typography.versionLine).toBe(typography.nameLine);
+  });
+
+  test('keeps the Arena top bar balanced at 350px', async ({ page }) => {
+    await page.setViewportSize({
+      width: 350,
+      height: 700
     });
 
     await page.reload();
 
-    await expect(page.getByTestId('board-grid')).toBeVisible();
+    const topbar = page.locator('.topbar');
+    const bar = page.locator('.match-bar');
 
-    expect(requests.some((url) => url.includes(`g=${GENERATION}`))).toBe(true);
-  });
+    await expect(topbar).toHaveCSS('height', '52px');
+    await expect(bar.locator('.p-ver')).toHaveCount(2);
+    await expect(bar.locator('.p-name')).toHaveCount(2);
+    await expect(bar.locator('.p-color')).toHaveCount(2);
 
-  test('rejects a late latest-game response from an old generation', async ({ page }) => {
-    await page.unroute('/api/events');
-    await page.unroute('/api/latest-game');
-    await page.unroute('**/api/game/100*');
+    const geometry = await page.evaluate(() => {
+      const topbar = document.querySelector('.topbar').getBoundingClientRect();
+      const bar = document.querySelector('.match-bar').getBoundingClientRect();
+      const center = document.querySelector('.score-center').getBoundingClientRect();
+      const name = getComputedStyle(document.querySelector('.match-bar .p-name'));
+      const version = getComputedStyle(document.querySelector('.match-bar .p-ver'));
 
-    const currentGeneration = 'viewer-current';
-    const oldGeneration = 'viewer-old';
-    let staleGameRequests = 0;
-
-    await page.route('/api/events', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body: `data: ${JSON.stringify({
-          type: 'connected',
-          seq: 0,
-          generation: currentGeneration
-        })}\n\n`
-      });
+      return {
+        contained: bar.left >= topbar.left && bar.right <= topbar.right,
+        centered: Math.abs(center.left + center.width / 2 - (topbar.left + topbar.width / 2)) < 0.6,
+        nameSize: name.fontSize,
+        versionSize: version.fontSize,
+        nameLine: name.lineHeight,
+        versionLine: version.lineHeight
+      };
     });
 
-    await page.route('/api/latest-game', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(geometry.contained).toBe(true);
+    expect(geometry.centered).toBe(true);
+    expect(geometry.nameSize).toBe(geometry.versionSize);
+    expect(geometry.nameLine).toBe(geometry.versionLine);
+  });
 
-      await route.fulfill({
-        headers: {
-          'x-arena-generation': oldGeneration
-        },
-        json: {
-          id: 41
-        }
-      });
+  test('keeps one arrow node through preparation and opening', async ({ page }) => {
+    const first = page.getByTestId('match-group').first();
+    const arrow = first.locator('.group-arrow');
+
+    await arrow.evaluate((element) => {
+      element.dataset.probe = 'persistent';
     });
 
-    await page.route('**/api/game/41*', async (route) => {
-      staleGameRequests += 1;
+    await first.locator('.group-header').click();
+    await expectPhase(first, 'opening');
+    await expect(arrow).toHaveCSS('animation-name', 'group-arrow-open');
+    await expectPhase(first, 'open');
+    await expect(arrow).toHaveAttribute('data-probe', 'persistent');
+  });
 
-      await route.fulfill({
-        status: 500,
-        json: {
-          error: 'must not load'
-        }
-      });
+  test('waits for target data before closing the current tournament', async ({ page }) => {
+    const groups = page.getByTestId('match-group');
+    const first = groups.nth(0);
+    const second = groups.nth(1);
+
+    await openGroup(first);
+
+    await page.addStyleTag({
+      content: '.group-list { transition-duration: 700ms !important; }'
     });
 
-    await page.goto('/');
+    holdRun2 = true;
 
-    await expect(page.getByText('Select a match')).toBeVisible();
-    await expect(page).toHaveURL('http://127.0.0.1:4173/');
+    await second.locator('.group-header').click();
 
-    expect(staleGameRequests).toBe(0);
+    await expectPhase(first, 'open');
+    await expectPhase(second, 'preparing');
+    await expect.poll(() => typeof releaseRun2).toBe('function');
+
+    releaseRun2();
+    holdRun2 = false;
+
+    await expectPhase(first, 'closing');
+    await expectPhase(first, 'closed');
+    await expectPhase(second, 'opening');
+    await expectPhase(second, 'open');
+    await expect(page.locator('.group-item.open')).toHaveCount(1);
   });
 
-  test('shows one canonical tournament summary', async ({ page }) => {
-    await expect(page.getByLabel('10 wins, 5 losses, 2 draws')).toBeVisible();
-    await expect(page.getByText('17/20')).toBeVisible();
-    await expect(page.locator('.run-status.live')).toBeVisible();
+  test('opens failed data into matrix and Retry', async ({ page }) => {
+    failRun2 = true;
+
+    const second = page.getByTestId('match-group').nth(1);
+
+    await second.locator('.group-header').click();
+    await expectPhase(second, 'open');
 
     await expect(
-      page.getByText('S1', {
-        exact: true
-      })
-    ).toHaveCount(0);
-
-    await expect(
-      page.getByText('S2', {
-        exact: true
-      })
-    ).toHaveCount(0);
-  });
-
-  test('keeps the tournament record neutral and the leader distinct', async ({ page }) => {
-    const record = page.locator('.tournament-record');
-    const values = record.locator('span');
-    const leader = page.getByTestId('player-row-1');
-    const other = page.getByTestId('player-row-2');
-
-    await expect(values).toHaveCount(3);
-
-    const colors = await values.evaluateAll((elements) =>
-      elements.map((element) => getComputedStyle(element).color)
-    );
-
-    expect(new Set(colors).size).toBe(1);
-
-    const accent = await page
-      .locator('.run-status.live')
-      .evaluate((element) => getComputedStyle(element).color);
-
-    await expect(leader.locator('.p-name-text')).toHaveCSS('color', accent);
-    await expect(leader.locator('.ver-tag')).not.toHaveCSS('color', accent);
-    await expect(other.locator('.p-name-text')).not.toHaveCSS('color', accent);
-    await expect(page.locator('.player-identity .gold-text')).toHaveCount(1);
-  });
-
-  test('displays the current game bar', async ({ page }) => {
-    await expect(page.locator('.match-bar')).toContainText('BotA');
-    await expect(page.locator('.match-bar')).toContainText('BotB');
-    await expect(page.locator('.match-bar')).toContainText('LIVE');
-  });
-
-  test('renders stones in correct positions', async ({ page }) => {
-    await expect(page.getByTestId('board-grid')).toBeVisible();
-    await expect(page.getByTestId('stone-10-10')).toBeVisible();
-    await expect(page.getByTestId('stone-11-11')).toBeVisible();
-    await expect(page.getByTestId('stone-10-10')).toHaveAttribute('style', /left:\s*50%/);
-  });
-
-  test('opens statistics and games with canonical identity', async ({ page }) => {
-    const requestPromise = page.waitForRequest((request) => request.url().includes('/api/games?'));
-
-    await page.getByTestId('match-group').locator('.group-header').click();
-
-    const request = await requestPromise;
-
-    await expect(
-      page.getByRole('region', {
-        name: 'Tournament statistics'
+      second.getByRole('table', {
+        name: 'Player statistics comparison'
       })
     ).toBeVisible();
 
-    await expect(page.getByText('Eff')).toBeVisible();
-    await expect(page.getByTestId('match-row')).toBeVisible();
-
-    const url = new URL(request.url());
-
-    expect(url.searchParams.get('hero_slot')).toBe('1');
-    expect(url.searchParams.get('run_id')).toBe('run1');
-  });
-
-  test('contains expanded statistics within the tournament sidebar', async ({ page }) => {
-    const group = page.getByTestId('match-group');
-
-    await group.locator('.group-header').click();
-
-    const stats = page.getByRole('region', {
-      name: 'Tournament statistics'
+    const retry = second.getByRole('alert', {
+      name: 'Could not load game history'
     });
 
-    await expect(stats).toBeVisible();
+    await expect(retry).toBeVisible();
 
-    const contained = await stats.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const groupRect = element.closest('.group-item').getBoundingClientRect();
-      const sidebarRect = element.closest('.sidebar').getBoundingClientRect();
+    failRun2 = false;
 
-      return (
-        rect.left >= groupRect.left - 0.5 &&
-        rect.right <= groupRect.right + 0.5 &&
-        rect.left >= sidebarRect.left - 0.5 &&
-        rect.right <= sidebarRect.right + 0.5 &&
-        element.scrollWidth <= element.clientWidth
-      );
-    });
-
-    expect(contained).toBe(true);
-  });
-
-  test('does not retry failed history until Retry is pressed', async ({ page }) => {
-    await page.unroute('/api/games*');
-
-    let requests = 0;
-
-    await page.route('/api/games*', async (route) => {
-      requests += 1;
-
-      if (requests === 1) {
-        await route.fulfill({
-          status: 500,
-          json: {
-            error: 'unavailable'
-          }
-        });
-        return;
-      }
-
-      await route.fulfill({
-        json: []
-      });
-    });
-
-    await page.getByTestId('match-group').locator('.group-header').click();
-
-    await expect(page.getByRole('alert')).toContainText('Could not load game history.');
-
-    await page.waitForTimeout(100);
-
-    expect(requests).toBe(1);
-
-    await page
+    await retry
       .getByRole('button', {
         name: 'Retry'
       })
       .click();
 
-    await expect.poll(() => requests).toBe(2);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(retry).toHaveCount(0);
   });
 
-  test('keeps long mobile names separated from the result', async ({ page }) => {
-    await page.setViewportSize({
-      width: 390,
-      height: 844
+  test('fits the analyzed matrix and formats long time', async ({ page }) => {
+    const first = page.getByTestId('match-group').first();
+
+    await openGroup(first);
+
+    const table = first.getByRole('table', {
+      name: 'Player statistics comparison'
     });
 
-    await page.unroute('**/api/game/100*');
+    await expect(table).toContainText('100h+');
+    await expect(table).toContainText('99h59');
 
-    await page.route('**/api/game/100*', async (route) => {
+    const clipped = await table
+      .locator('[role="columnheader"], [role="rowheader"], [role="cell"]')
+      .evaluateAll((elements) =>
+        elements
+          .filter((element) => element.scrollWidth > element.clientWidth)
+          .map((element) => element.textContent)
+      );
+
+    expect(clipped).toEqual([]);
+
+    expect(
+      await table.evaluate((element) => {
+        const body = element.closest('.group-list-inner');
+        const tableBox = element.getBoundingClientRect();
+        const bodyBox = body.getBoundingClientRect();
+
+        return (
+          tableBox.left >= bodyBox.left - 0.5 &&
+          tableBox.right <= bodyBox.right + 0.5 &&
+          body.scrollWidth <= body.clientWidth
+        );
+      })
+    ).toBe(true);
+  });
+
+  test('aligns history headers and values exactly', async ({ page }) => {
+    const first = page.getByTestId('match-group').first();
+
+    await openGroup(first);
+
+    const row = first.getByTestId('match-row').first();
+
+    for (const column of [
+      ['id', 'row-id'],
+      ['side', 'row-side'],
+      ['moves', 'row-moves'],
+      ['duration', 'row-duration'],
+      ['result', 'row-status']
+    ]) {
+      const headerBox = await first.locator(`.history-head-cell.${column[0]}`).boundingBox();
+      const valueBox = await row.locator(`.${column[1]}`).boundingBox();
+
+      expect(Math.abs(headerBox.x - valueBox.x)).toBeLessThan(0.6);
+      expect(Math.abs(headerBox.width - valueBox.width)).toBeLessThan(0.6);
+    }
+  });
+
+  test('uses lean snapshots and locally reorders streamed data', async ({ page }) => {
+    const first = page.getByTestId('match-group').first();
+
+    await openGroup(first);
+
+    await first
+      .getByRole('button', {
+        name: /Sort by move count/
+      })
+      .click();
+
+    await expect.poll(() => historyRequests.length).toBe(2);
+
+    const updated = pair('run1', 100, {
+      min_moves: 12,
+      max_moves: 12,
+      games: [
+        historyGame('run1', 'run1_100', 100, 1, {
+          move_count: 12,
+          duration: 1300
+        })
+      ]
+    });
+
+    await page.evaluate((event) => window.__arenaEmit(event), {
+      type: 'game_move',
+      run_id: 'run1',
+      moves: '10,10,1;11,11,2',
+      pair: updated
+    });
+
+    await expect(first.getByTestId('match-row').first().locator('.row-id')).toHaveText('#100');
+
+    expect(historyRequests).toHaveLength(2);
+  });
+
+  test('completes the full Replay exit batch', async ({ page }) => {
+    await page.unroute('**/api/game/100');
+
+    await page.route('**/api/game/100', async (route) => {
       await route.fulfill({
         headers: {
           'x-arena-generation': GENERATION
         },
-        json: game({
-          black_name: 'AlphaLongBotName',
-          white_name: 'BetaLongBotNameX',
-          black_ver: '123.45',
-          white_ver: '987.65',
-          winner_color: 1
-        })
+        json: terminalGame()
       });
     });
 
-    await page.goto('/');
+    await page.reload();
 
-    const bar = page.locator('.match-bar');
-    const left = bar.locator('.player-left');
-    const right = bar.locator('.player-right');
-    const leftName = left.locator('.p-name');
-    const rightName = right.locator('.p-name');
-    const score = bar.locator('.score-center');
-    const versions = bar.locator('.p-ver');
-    const stones = bar.locator('.p-color');
+    await page
+      .getByRole('button', {
+        name: 'Replay from start'
+      })
+      .click();
 
-    await expect(leftName).toHaveText('AlphaLongBotName');
-    await expect(rightName).toHaveText('BetaLongBotNameX');
-    await expect(bar.getByText('1 – 0')).toBeVisible();
-    await expect(stones).toHaveCount(2);
+    const exiting = page.locator('.stone-layer.exiting');
 
-    for (let index = 0; index < 2; index += 1) {
-      await expect(stones.nth(index)).toBeVisible();
-      await expect(versions.nth(index)).toHaveCSS('display', 'none');
+    await expect(exiting).toHaveCount(9);
+
+    const exitingStones = await exiting.all();
+
+    for (const stone of exitingStones) {
+      await stone.dispatchEvent('animationend', {
+        animationName: 'arena-stone-exit'
+      });
     }
 
-    const [leftBox, rightBox, leftNameBox, rightNameBox, scoreBox, barBox] = await Promise.all([
-      left.boundingBox(),
-      right.boundingBox(),
-      leftName.boundingBox(),
-      rightName.boundingBox(),
-      score.boundingBox(),
-      bar.boundingBox()
-    ]);
+    const marker = page.locator('.move-marker.exiting');
 
-    expect(leftBox).not.toBeNull();
-    expect(rightBox).not.toBeNull();
-    expect(leftNameBox).not.toBeNull();
-    expect(rightNameBox).not.toBeNull();
-    expect(scoreBox).not.toBeNull();
-    expect(barBox).not.toBeNull();
-
-    expect(leftBox.width).toBeGreaterThan(20);
-    expect(rightBox.width).toBeGreaterThan(20);
-    expect(leftNameBox.width).toBeGreaterThan(8);
-    expect(rightNameBox.width).toBeGreaterThan(8);
-    expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(scoreBox.x + 0.5);
-    expect(scoreBox.x + scoreBox.width).toBeLessThanOrEqual(rightBox.x + 0.5);
-    expect(barBox.x).toBeGreaterThanOrEqual(-0.5);
-    expect(barBox.x + barBox.width).toBeLessThanOrEqual(390.5);
-
-    const noOverflow = await bar.evaluate((element) => element.scrollWidth <= element.clientWidth);
-
-    expect(noOverflow).toBe(true);
-    await expectMenuLayout(page);
-  });
-
-  test('closes the mobile sidebar inertly and restores menu focus', async ({ page }) => {
-    await page.setViewportSize({
-      width: 390,
-      height: 844
-    });
-
-    const sidebar = page.locator('#tournament-sidebar');
-
-    const close = page.getByRole('button', {
-      name: 'Close tournaments'
-    });
-
-    const menu = page.getByRole('button', {
-      name: 'Toggle tournaments'
-    });
-
-    await expect(sidebar).toHaveAttribute('aria-hidden', 'false');
-
-    await close.click();
-
-    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
-    await expect(sidebar).toHaveAttribute('inert', '');
-    await expect(menu).toBeFocused();
-  });
-
-  test('renders an expanded tournament with complete statistics', async ({ page }) => {
-    await page.unroute('/api/runs');
-
-    await page.route('/api/runs', async (route) => {
-      await route.fulfill({
-        json: [
-          run({
-            p2_crashes: 2
-          })
-        ]
+    if (await marker.count()) {
+      await marker.dispatchEvent('animationend', {
+        animationName: 'arena-marker-exit'
       });
-    });
+    }
 
-    await page.goto('/');
+    const line = page.locator('.win-line-svg.exiting');
 
-    const group = page.getByTestId('match-group');
-
-    await group.locator('.group-header').click();
-
-    await expect(page.getByText('CMA')).toBeVisible();
-    await expect(page.getByText('Blunder')).toBeVisible();
-    await expect(page.getByText('Crashes')).toBeVisible();
-    await expect(page.getByText('Crashes').locator('..')).toContainText('2');
-    await expect(page.getByTestId('match-row')).toBeVisible();
-  });
-
-  test('renders an expanded tournament with only core statistics', async ({ page }) => {
-    await page.unroute('/api/runs');
-
-    await page.route('/api/runs', async (route) => {
-      await route.fulfill({
-        json: [
-          run({
-            p1_eff: null,
-            p2_eff: null,
-            p1_cma: 0,
-            p2_cma: 0,
-            p1_blunder: 0,
-            p2_blunder: 0,
-            p1_moves_analyzed: 0,
-            p2_moves_analyzed: 0,
-            p1_critical_total: 0,
-            p2_critical_total: 0,
-            p1_crashes: 0,
-            p2_crashes: 0
-          })
-        ]
+    if (await line.count()) {
+      await line.dispatchEvent('animationend', {
+        animationName: 'arena-line-exit'
       });
-    });
+    }
 
-    await page.goto('/');
-
-    const group = page.getByTestId('match-group');
-
-    await group.locator('.group-header').click();
-
-    await expect(page.getByText('Eff')).toBeVisible();
-    await expect(page.getByText('CMA')).toHaveCount(0);
-    await expect(page.getByText('Blunder')).toHaveCount(0);
-    await expect(page.getByText('Crashes')).toHaveCount(0);
-    await expect(page.getByTestId('match-row')).toBeVisible();
-  });
-
-  test('renders a terminal board with persistent result markers', async ({ page }) => {
-    await page.unroute('**/api/game/100*');
-
-    await page.route('**/api/game/100*', async (route) => {
-      await route.fulfill({
-        headers: {
-          'x-arena-generation': GENERATION
-        },
-        json: game({
-          moves: '0,0,1;0,1,2;1,0,1;1,1,2;2,0,1;2,1,2;3,0,1;3,1,2;4,0,1',
-          winner_color: 1
-        })
-      });
-    });
-
-    await page.goto('/');
-
-    await expect(page.getByTestId('win-line')).toBeAttached();
-    await expect(page.getByTestId('win-line')).toHaveCSS('stroke', 'rgb(239, 68, 68)');
-    await expect(page.getByTestId('stone-4-0')).toHaveClass(/last/);
-    await expect(page.locator('.match-bar')).toContainText('1 – 0');
+    await expect(page.locator('.stone-layer')).toHaveCount(0);
+    await expect(page.locator('.move-marker')).toHaveCount(0);
+    await expect(page.locator('.win-line-svg')).toHaveCount(0);
   });
 });

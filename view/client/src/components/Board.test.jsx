@@ -1,295 +1,253 @@
-import { act, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import Board from './Board';
 
+const move = (x, y, c) => ({
+  x,
+  y,
+  c
+});
+
+const dispatchAnimation = (element, type, animationName) => {
+  const event = new Event(type, {
+    bubbles: true
+  });
+
+  Object.defineProperty(event, 'animationName', {
+    value: animationName
+  });
+
+  fireEvent(element, event);
+};
+
+const finishAnimation = (element, animationName) =>
+  dispatchAnimation(element, 'animationend', animationName);
+
+const cancelAnimation = (element, animationName) =>
+  dispatchAnimation(element, 'animationcancel', animationName);
+
 const renderBoard = (props = {}) =>
-  render(<Board gameId={1} parsedMoves={[]} moveIndex={0} winnerColor={0} {...props} />);
+  render(
+    <Board
+      gameId={1}
+      parsedMoves={[]}
+      moveIndex={0}
+      winnerColor={0}
+      transition={null}
+      boardSize={20}
+      onTransitionChange={vi.fn()}
+      onTransitionComplete={vi.fn()}
+      {...props}
+    />
+  );
 
-describe('Board Component', () => {
-  it('renders correct number of stones', () => {
-    const moves = [
-      {
-        x: 10,
-        y: 10,
-        c: 1
-      },
-      {
-        x: 11,
-        y: 11,
-        c: 2
-      }
-    ];
-
+describe('Board', () => {
+  it('renders an initial position without motion', () => {
     renderBoard({
-      parsedMoves: moves,
+      parsedMoves: [move(1, 1, 1), move(2, 2, 2)],
       moveIndex: 2
     });
 
-    expect(screen.getAllByTestId(/^stone-/)).toHaveLength(2);
+    expect(screen.getByTestId('stone-1-1')).toHaveClass('stable');
+
+    expect(screen.getByTestId('last-move-marker')).toHaveClass('on-white', 'stable');
   });
 
-  it('renders winning line at the final position', () => {
-    const moves = [
-      {
-        x: 0,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 1,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 2,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 3,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 4,
-        y: 0,
-        c: 1
-      }
-    ];
-
-    renderBoard({
-      parsedMoves: moves,
-      moveIndex: 5,
-      winnerColor: 1
-    });
-
-    expect(screen.getByTestId('win-line')).toHaveAttribute('pathLength', '1');
-  });
-
-  it('hides the winning line before the final position', () => {
-    const moves = [
-      {
-        x: 0,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 1,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 2,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 3,
-        y: 0,
-        c: 1
-      },
-      {
-        x: 4,
-        y: 0,
-        c: 1
-      }
-    ];
-
-    renderBoard({
-      parsedMoves: moves,
-      moveIndex: 4,
-      winnerColor: 1
-    });
-
-    expect(screen.queryByTestId('win-line')).not.toBeInTheDocument();
-  });
-
-  it('uses provided board size', () => {
-    const moves = [
-      {
-        x: 7,
-        y: 7,
-        c: 1
-      }
-    ];
-
-    renderBoard({
-      parsedMoves: moves,
-      moveIndex: 1,
-      boardSize: 15
-    });
-
-    expect(screen.getByTestId('board-grid')).toHaveStyle({
-      gridTemplateColumns: 'repeat(15, 1fr)',
-      gridTemplateRows: 'repeat(15, 1fr)'
-    });
-
-    expect(screen.getByTestId('stone-7-7')).toHaveStyle({
-      left: '46.666666666666664%',
-      top: '46.666666666666664%',
-      width: '6.666666666666667%',
-      height: '6.666666666666667%'
-    });
-  });
-
-  it('does not spawn bulk-loaded stones', () => {
-    const moves = [
-      {
-        x: 1,
-        y: 1,
-        c: 1
-      },
-      {
-        x: 2,
-        y: 2,
-        c: 2
-      }
-    ];
-
-    renderBoard({
-      parsedMoves: moves,
-      moveIndex: 2
-    });
-
-    expect(screen.getByTestId('stone-1-1')).not.toHaveClass('spawn');
-
-    expect(screen.getByTestId('stone-2-2')).not.toHaveClass('spawn');
-  });
-
-  it('spawns a one-step addition in the same game', () => {
-    const first = [
-      {
-        x: 1,
-        y: 1,
-        c: 1
-      }
-    ];
-
-    const second = [
-      ...first,
-      {
-        x: 2,
-        y: 2,
-        c: 2
-      }
-    ];
+  it('waits for every fast append before changing marker', () => {
+    const first = [move(1, 1, 1)];
+    const next = [...first, move(2, 2, 2), move(3, 3, 1)];
 
     const { rerender } = renderBoard({
       parsedMoves: first,
       moveIndex: 1
     });
 
-    act(() => {
-      rerender(<Board gameId={1} parsedMoves={second} moveIndex={2} winnerColor={0} />);
-    });
+    const oldMarker = screen.getByTestId('last-move-marker');
 
-    expect(screen.getByTestId('stone-2-2')).toHaveClass('spawn');
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={next}
+        moveIndex={3}
+        winnerColor={0}
+        transition={null}
+        boardSize={20}
+      />
+    );
+
+    finishAnimation(screen.getByTestId('stone-3-3'), 'arena-stone-enter');
+    finishAnimation(oldMarker, 'arena-marker-exit');
+
+    expect(screen.queryByTestId('last-move-marker')).not.toBeInTheDocument();
+
+    finishAnimation(screen.getByTestId('stone-2-2'), 'arena-stone-enter');
+
+    expect(screen.getByTestId('last-move-marker')).toHaveClass('on-black', 'entering');
   });
 
-  it('does not spawn stones when switching games', () => {
-    const first = [
-      {
-        x: 1,
-        y: 1,
-        c: 1
-      }
-    ];
-
-    const second = [
-      {
-        x: 5,
-        y: 5,
-        c: 1
-      },
-      {
-        x: 6,
-        y: 6,
-        c: 2
-      }
-    ];
+  it('marks the previous move after rewind completes', () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2)];
+    const onTransitionComplete = vi.fn();
 
     const { rerender } = renderBoard({
-      gameId: 1,
-      parsedMoves: first,
-      moveIndex: 1
-    });
-
-    act(() => {
-      rerender(<Board gameId={2} parsedMoves={second} moveIndex={2} winnerColor={0} />);
-    });
-
-    expect(screen.getByTestId('stone-6-6')).not.toHaveClass('spawn');
-  });
-
-  it('keeps the inverse last-move marker during autoplay', () => {
-    renderBoard({
-      parsedMoves: [
-        {
-          x: 10,
-          y: 10,
-          c: 1
-        },
-        {
-          x: 11,
-          y: 10,
-          c: 2
-        }
-      ],
+      parsedMoves: moves,
       moveIndex: 2,
-      isPlaying: true
+      onTransitionComplete
     });
 
-    expect(screen.getByTestId('stone-11-10')).toHaveClass('white', 'last');
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={1}
+        winnerColor={0}
+        transition={{
+          token: 1,
+          kind: 'previous'
+        }}
+        boardSize={20}
+        onTransitionComplete={onTransitionComplete}
+      />
+    );
+
+    const exitingStone = screen.getByTestId('stone-2-2');
+    const exitingMarker = screen.getByTestId('last-move-marker');
+
+    finishAnimation(exitingMarker, 'arena-marker-exit');
+    finishAnimation(exitingStone, 'arena-stone-exit');
+
+    const marker = screen.getByTestId('last-move-marker');
+
+    expect(marker).toHaveClass('on-black', 'entering');
+
+    finishAnimation(marker, 'arena-marker-enter');
+
+    expect(onTransitionComplete).toHaveBeenCalledWith(1);
   });
 
-  it('renders full overlines', () => {
+  it('ignores stale cancellation and completes the active phase', async () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2)];
+    const onTransitionComplete = vi.fn();
+
+    const { rerender } = renderBoard({
+      parsedMoves: moves,
+      moveIndex: 2,
+      onTransitionComplete
+    });
+
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={1}
+        winnerColor={0}
+        transition={{
+          token: 1,
+          kind: 'previous'
+        }}
+        boardSize={20}
+        onTransitionComplete={onTransitionComplete}
+      />
+    );
+
+    const exitingMarker = screen.getByTestId('last-move-marker');
+    const exitingStone = screen.getByTestId('stone-2-2');
+
+    cancelAnimation(exitingMarker, 'arena-marker-enter');
+    cancelAnimation(exitingStone, 'arena-stone-enter');
+
+    expect(exitingMarker).toHaveClass('exiting');
+    expect(exitingStone).toHaveClass('exiting');
+
+    cancelAnimation(exitingMarker, 'arena-marker-exit');
+    cancelAnimation(exitingStone, 'arena-stone-exit');
+
+    const marker = screen.getByTestId('last-move-marker');
+
+    cancelAnimation(marker, 'arena-marker-enter');
+
+    await waitFor(() => expect(onTransitionComplete).toHaveBeenCalledWith(1));
+  });
+
+  it('waits for every Replay stone', async () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2), move(3, 3, 1)];
+    const onTransitionComplete = vi.fn();
+
+    const { rerender } = renderBoard({
+      parsedMoves: moves,
+      moveIndex: 3,
+      onTransitionComplete
+    });
+
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={0}
+        winnerColor={0}
+        transition={{
+          token: 1,
+          kind: 'replay'
+        }}
+        boardSize={20}
+        onTransitionComplete={onTransitionComplete}
+      />
+    );
+
+    const stones = screen.getAllByTestId(/^stone-/);
+
+    finishAnimation(stones[0], 'arena-stone-exit');
+
+    expect(screen.getAllByTestId(/^stone-/)).toHaveLength(3);
+
+    for (const stone of stones.slice(1)) {
+      finishAnimation(stone, 'arena-stone-exit');
+    }
+
+    const marker = screen.queryByTestId('last-move-marker');
+
+    if (marker) {
+      finishAnimation(marker, 'arena-marker-exit');
+    }
+
+    expect(screen.queryAllByTestId(/^stone-/)).toHaveLength(0);
+
+    await waitFor(() => expect(onTransitionComplete).toHaveBeenCalledWith(1));
+  });
+
+  it('retracts the winning line on rewind', () => {
     const moves = [
-      {
-        x: 0,
-        y: 5,
-        c: 1
-      },
-      {
-        x: 1,
-        y: 4,
-        c: 1
-      },
-      {
-        x: 2,
-        y: 3,
-        c: 1
-      },
-      {
-        x: 3,
-        y: 2,
-        c: 1
-      },
-      {
-        x: 4,
-        y: 1,
-        c: 1
-      },
-      {
-        x: 5,
-        y: 0,
-        c: 1
-      }
+      move(0, 0, 1),
+      move(0, 1, 2),
+      move(1, 0, 1),
+      move(1, 1, 2),
+      move(2, 0, 1),
+      move(2, 1, 2),
+      move(3, 0, 1),
+      move(3, 1, 2),
+      move(4, 0, 1)
     ];
 
-    renderBoard({
+    const { rerender } = renderBoard({
       parsedMoves: moves,
-      moveIndex: 6,
+      moveIndex: 9,
       winnerColor: 1
     });
 
-    const line = screen.getByTestId('win-line');
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={8}
+        winnerColor={1}
+        transition={{
+          token: 1,
+          kind: 'previous'
+        }}
+        boardSize={20}
+      />
+    );
 
-    expect(line).toHaveAttribute('x1', '0.5');
-
-    expect(line).toHaveAttribute('y1', '5.5');
-
-    expect(line).toHaveAttribute('x2', '5.5');
-
-    expect(line).toHaveAttribute('y2', '0.5');
+    expect(screen.getByTestId('win-line')).toHaveClass('exiting');
   });
 });

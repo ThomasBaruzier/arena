@@ -46,115 +46,115 @@ const playerFromRun = (run, runId, slot, current) => {
 };
 
 export const matchupsReducer = (state, action) => {
-  switch (action.type) {
-    case 'SET':
-      return action.data;
+  if (action.type === 'SET') {
+    return action.data;
+  }
 
-    case 'APPEND':
-      return [
-        ...new Map(
-          [...state, ...action.data].map((matchup) => [matchupKey(matchup), matchup])
-        ).values()
-      ];
+  if (action.type === 'APPEND') {
+    return [
+      ...new Map(
+        [...state, ...action.data].map((matchup) => [matchupKey(matchup), matchup])
+      ).values()
+    ];
+  }
 
-    case 'RESET':
-      return [];
+  if (action.type === 'RESET') {
+    return [];
+  }
 
-    case 'game_start': {
-      const event = action.event;
+  if (action.type === 'game_start') {
+    const event = action.event;
 
-      if (!event.game) return state;
+    if (!event.game) return state;
 
-      const runId = getEventRunId(event);
+    const runId = getEventRunId(event);
 
-      if (!runId) return state;
+    if (!runId) return state;
 
-      const existingIndex = state.findIndex((matchup) => sameId(getRunId(matchup), runId));
+    const index = state.findIndex((matchup) => sameId(getRunId(matchup), runId));
 
-      if (existingIndex !== -1) {
-        const current = state[existingIndex];
+    if (index >= 0) {
+      const current = state[index];
 
-        const updated = {
-          ...current,
-          runId,
-          lastActivity: event.game.timestamp,
-          live_count: (current.live_count || 0) + (event.game.winner_color === 0 ? 1 : 0)
-        };
+      const updated = {
+        ...current,
+        runId,
+        lastActivity: event.game.timestamp,
+        live_count: (current.live_count || 0) + (event.game.winner_color === 0 ? 1 : 0)
+      };
 
-        return [updated, ...state.filter((_, index) => index !== existingIndex)];
+      return [updated, ...state.filter((_, currentIndex) => currentIndex !== index)];
+    }
+
+    return [
+      {
+        runId,
+        status: 'live',
+        hero: playerFromGame(event.game, runId, 1),
+        villain: playerFromGame(event.game, runId, 2),
+        heroWins: 0,
+        villainWins: 0,
+        draws: 0,
+        total: 0,
+        live_count: event.game.winner_color === 0 ? 1 : 0,
+        lastActivity: event.game.timestamp
+      },
+      ...state
+    ];
+  }
+
+  if (action.type === 'run_update') {
+    const run = action.event.run ?? action.event;
+    const runId = getEventRunId(action.event);
+
+    return state.map((matchup) => {
+      if (!sameId(getRunId(matchup), runId)) {
+        return matchup;
       }
 
-      return [
-        {
-          runId,
-          status: 'live',
-          hero: playerFromGame(event.game, runId, 1),
-          villain: playerFromGame(event.game, runId, 2),
-          heroWins: 0,
-          villainWins: 0,
-          draws: 0,
-          total: 0,
-          live_count: event.game.winner_color === 0 ? 1 : 0,
-          lastActivity: event.game.timestamp
+      return {
+        ...matchup,
+        status: run.status ?? matchup.status,
+        run: {
+          ...(matchup.run || {}),
+          ...run,
+          id: run.id ?? runId
         },
-        ...state
-      ];
-    }
-
-    case 'run_update': {
-      const run = action.event.run || action.event;
-      const runId = getEventRunId(action.event);
-
-      return state.map((matchup) => {
-        if (!sameId(getRunId(matchup), runId)) {
-          return matchup;
-        }
-
-        return {
-          ...matchup,
-          status: run.status ?? matchup.status,
-          run: {
-            ...(matchup.run || {}),
-            ...run,
-            id: run.id ?? runId
-          },
-          hero: playerFromRun(run, runId, 1, matchup.hero),
-          villain: playerFromRun(run, runId, 2, matchup.villain),
-          heroWins: typeof run.wins === 'number' ? run.wins : matchup.heroWins,
-          villainWins: typeof run.losses === 'number' ? run.losses : matchup.villainWins,
-          draws: run.draws ?? matchup.draws,
-          total: run.games_played ?? matchup.total
-        };
-      });
-    }
-
-    case 'game_result': {
-      const event = action.event;
-      const runId = getEventRunId(event);
-
-      return state.map((matchup) => {
-        const matches =
-          sameId(getRunId(matchup), runId) &&
-          sameSlotPair(matchup.hero.slot, matchup.villain.slot, event.black_slot, event.white_slot);
-
-        if (!matches) {
-          return matchup;
-        }
-
-        return {
-          ...matchup,
-          lastActivity: new Date().toISOString(),
-          live_count:
-            event.winner_color === 0
-              ? matchup.live_count || 0
-              : Math.max(0, (matchup.live_count || 0) - 1)
-        };
-      });
-    }
-
-    default:
-      return state;
+        hero: playerFromRun(run, runId, 1, matchup.hero),
+        villain: playerFromRun(run, runId, 2, matchup.villain),
+        heroWins: typeof run.wins === 'number' ? run.wins : matchup.heroWins,
+        villainWins: typeof run.losses === 'number' ? run.losses : matchup.villainWins,
+        draws: run.draws ?? matchup.draws,
+        total: run.games_played ?? matchup.total
+      };
+    });
   }
+
+  if (action.type === 'game_result') {
+    const event = action.event;
+    const runId = getEventRunId(event);
+
+    return state.map((matchup) => {
+      const matches =
+        sameId(getRunId(matchup), runId) &&
+        sameSlotPair(matchup.hero.slot, matchup.villain.slot, event.black_slot, event.white_slot);
+
+      if (!matches) {
+        return matchup;
+      }
+
+      return {
+        ...matchup,
+        lastActivity: new Date().toISOString(),
+        live_count:
+          event.winner_color === 0
+            ? matchup.live_count || 0
+            : Math.max(0, (matchup.live_count || 0) - 1)
+      };
+    });
+  }
+
+  return state;
 };
 
 export function useMatchups(subscribe) {
@@ -162,7 +162,7 @@ export function useMatchups(subscribe) {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
-  const [resetToken, setResetToken] = useState(0);
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -192,13 +192,15 @@ export function useMatchups(subscribe) {
         }
       });
 
-    return () => controller.abort();
-  }, [page, resetToken]);
+    return () => {
+      controller.abort();
+    };
+  }, [page, revision]);
 
   const loadMore = useCallback((reset = false) => {
     if (reset) {
       setPage(0);
-      setResetToken((token) => token + 1);
+      setRevision((current) => current + 1);
     } else {
       setPage((current) => current + 1);
     }
@@ -211,10 +213,17 @@ export function useMatchups(subscribe) {
           dispatch({
             type: 'RESET'
           });
+
           loadMore(true);
-        } else if (event.type === 'run_start') {
+          return;
+        }
+
+        if (event.type === 'run_start') {
           loadMore(true);
-        } else if (REDUCER_EVENTS.has(event.type)) {
+          return;
+        }
+
+        if (REDUCER_EVENTS.has(event.type)) {
           dispatch({
             type: event.type,
             event
@@ -240,6 +249,13 @@ export function useRuns(subscribe) {
     controller: null
   });
 
+  const cancelRefresh = useCallback(() => {
+    requestRef.current.revision += 1;
+    requestRef.current.controller?.abort();
+    requestRef.current.controller = null;
+    setLoading(false);
+  }, []);
+
   const refresh = useCallback(() => {
     requestRef.current.controller?.abort();
 
@@ -247,6 +263,7 @@ export function useRuns(subscribe) {
     const revision = ++requestRef.current.revision;
 
     requestRef.current.controller = controller;
+
     setLoading(true);
 
     return fetch(`${API_BASE}/runs`, {
@@ -287,26 +304,33 @@ export function useRuns(subscribe) {
     () =>
       subscribe((event) => {
         if (event.type === 'reset') {
+          setRuns([]);
           refresh().catch(() => {});
-        } else if (event.type === 'run_start' && event.run) {
-          setRuns((current) => [
-            event.run,
-            ...current.filter((run) => !sameId(run.id, event.run.id))
-          ]);
-        } else if (event.type === 'run_update' && event.run) {
-          setRuns((current) =>
-            current.map((run) =>
-              sameId(run.id, event.run.id)
+          return;
+        }
+
+        if ((event.type === 'run_start' || event.type === 'run_update') && event.run) {
+          cancelRefresh();
+
+          setRuns((current) => {
+            const index = current.findIndex((run) => sameId(run.id, event.run.id));
+
+            if (index < 0) {
+              return [event.run, ...current];
+            }
+
+            return current.map((run, currentIndex) =>
+              currentIndex === index
                 ? {
                     ...run,
                     ...event.run
                   }
                 : run
-            )
-          );
+            );
+          });
         }
       }),
-    [subscribe, refresh]
+    [subscribe, refresh, cancelRefresh]
   );
 
   return {

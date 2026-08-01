@@ -1,50 +1,39 @@
-import { FastForward, Pause, Play, RotateCcw, SkipBack, SkipForward } from 'lucide-react';
+import { Pause, Play, RotateCcw, SkipBack, SkipForward } from 'lucide-react';
 
 export default function ControlDeck({
   isPlaying,
   setIsPlaying,
-  setMoveIndex,
+  replayFromStart,
+  previousMove,
+  nextMove,
   totalMoves,
   moveIndex,
   speed,
-  setSpeed
+  setSpeed,
+  transition,
+  visualTransitioning
 }) {
+  const atEnd = moveIndex >= totalMoves;
+  const movementLocked = Boolean(transition) || visualTransitioning;
+
   return (
-    <div className="control-deck">
+    <div className="control-deck" aria-label="Game playback" aria-busy={movementLocked}>
       <div className="deck-group playback">
         <button
           type="button"
-          aria-label="Go to first position"
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex(0);
-          }}
+          aria-label="Replay from start"
+          disabled={moveIndex === 0 || movementLocked}
+          onClick={replayFromStart}
         >
-          <RotateCcw size={16} />
-        </button>
-
-        <button
-          type="button"
-          aria-label="Previous move"
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex((current) => Math.max(0, current - 1));
-          }}
-        >
-          <SkipBack size={16} />
+          <RotateCcw size={17} />
         </button>
 
         <button
           type="button"
           className="play-btn"
           aria-label={isPlaying ? 'Pause playback' : 'Play playback'}
-          onClick={() => {
-            if (moveIndex >= totalMoves) {
-              setMoveIndex(0);
-            }
-
-            setIsPlaying(!isPlaying);
-          }}
+          disabled={totalMoves === 0 || (atEnd && !isPlaying) || (movementLocked && !isPlaying)}
+          onClick={() => setIsPlaying(!isPlaying)}
         >
           {isPlaying ? (
             <Pause size={20} fill="currentColor" />
@@ -55,24 +44,20 @@ export default function ControlDeck({
 
         <button
           type="button"
-          aria-label="Next move"
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex((current) => Math.min(totalMoves, current + 1));
-          }}
+          aria-label="Previous move"
+          disabled={moveIndex === 0 || movementLocked}
+          onClick={previousMove}
         >
-          <SkipForward size={16} />
+          <SkipBack size={17} />
         </button>
 
         <button
           type="button"
-          aria-label="Go to final position"
-          onClick={() => {
-            setIsPlaying(false);
-            setMoveIndex(totalMoves);
-          }}
+          aria-label="Next move"
+          disabled={atEnd || movementLocked}
+          onClick={nextMove}
         >
-          <FastForward size={16} />
+          <SkipForward size={17} />
         </button>
       </div>
 
@@ -92,7 +77,9 @@ export default function ControlDeck({
         ))}
       </div>
 
-      <div className="deck-info">Move: {moveIndex}</div>
+      <div className="deck-info">
+        Move {moveIndex}/{totalMoves}
+      </div>
     </div>
   );
 }

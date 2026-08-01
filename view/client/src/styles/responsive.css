@@ -12,7 +12,7 @@
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: min(var(--sidebar-width), calc(100vw - 24px));
+    width: var(--sidebar-width);
     margin-left: 0;
     transform: translateX(-100%);
     box-shadow: 18px 0 46px rgba(0, 0, 0, 0.4);
@@ -29,24 +29,31 @@
 
 @media (max-width: 700px) {
   .topbar {
-    padding: 0 8px;
+    padding: 0 7px;
+    grid-template-columns: 32px minmax(0, 1fr) 32px;
   }
 
-  .menu-toggle {
-    left: 8px;
+  .topbar::after {
+    width: 32px;
+  }
+
+  .menu-toggle,
+  .close-sidebar {
+    width: 32px;
+    height: 32px;
   }
 
   .match-bar {
-    padding: 0 40px;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) 58px minmax(0, 1fr);
+    gap: 7px;
   }
 
-  .match-bar .p-ver {
-    display: none;
+  .player-side {
+    gap: 6px;
   }
 
-  .match-bar .p-name {
-    font-size: 0.88rem;
+  .match-bar .player-identity {
+    gap: 5px;
   }
 
   .match-bar .p-color {
@@ -54,43 +61,61 @@
     height: 17px;
   }
 
+  .match-bar .p-ver,
+  .match-bar .p-name {
+    height: 20px;
+    font-size: 0.84rem;
+    line-height: 20px;
+  }
+
+  .match-bar .p-ver {
+    max-width: 66px;
+    padding: 0 4px;
+  }
+
   .score-center {
-    min-width: 58px;
+    width: 58px;
   }
 
   .live-tag {
-    min-width: 50px;
-    height: 22px;
-    padding: 0 7px;
-    font-size: 0.62rem;
+    min-width: 52px;
+    height: 24px;
+    padding: 0 6px;
+    font-size: 0.72rem;
   }
 
   .final-score {
-    font-size: 0.92rem;
-  }
-
-  .board-wrapper {
-    width: min(calc(100% - 20px), 76vh);
-  }
-
-  .control-deck {
-    bottom: 16px;
+    font-size: 0.96rem;
   }
 }
 
-@media (max-width: 480px) {
-  .match-bar {
-    padding: 0 40px;
-    gap: 5px;
+@media (max-width: 390px) {
+  .topbar {
+    padding: 0 5px;
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
   }
 
-  .player-left,
-  .player-right {
+  .topbar::after {
+    width: 30px;
+  }
+
+  .menu-toggle,
+  .close-sidebar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .match-bar {
+    grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
     gap: 4px;
   }
 
-  .match-bar .p-name {
-    font-size: 0.82rem;
+  .player-side {
+    gap: 4px;
+  }
+
+  .match-bar .player-identity {
+    gap: 4px;
   }
 
   .match-bar .p-color {
@@ -98,48 +123,35 @@
     height: 15px;
   }
 
+  .match-bar .p-ver,
+  .match-bar .p-name {
+    height: 20px;
+    font-size: 0.78rem;
+    line-height: 20px;
+  }
+
+  .match-bar .p-ver {
+    max-width: 58px;
+    padding: 0 4px;
+  }
+
   .score-center {
-    min-width: 48px;
+    width: 52px;
   }
 
   .live-tag {
-    min-width: 44px;
-    font-size: 0.6rem;
+    min-width: 48px;
+    height: 23px;
+    padding: 0 4px;
+    font-size: 0.7rem;
   }
 
   .final-score {
-    font-size: 0.84rem;
+    font-size: 0.9rem;
   }
 
-  .control-deck {
-    width: calc(100% - 28px);
-    min-height: 52px;
-    padding: 6px 12px;
-    border-radius: 16px;
-    justify-content: space-between;
-  }
-
-  .deck-info {
-    display: none;
-  }
-
-  .deck-group {
-    gap: 3px;
-  }
-
-  .deck-sep {
-    display: none;
-  }
-}
-
-@media (max-height: 680px) and (min-width: 701px) {
-  .board-wrapper {
-    width: min(calc(100% - 30px), calc(100dvh - var(--topbar-height) - 96px));
-    margin-bottom: 64px;
-  }
-
-  .control-deck {
-    bottom: 12px;
+  .final-score.void {
+    font-size: 0.7rem;
   }
 }
 

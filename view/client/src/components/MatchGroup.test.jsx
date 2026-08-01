@@ -1,420 +1,305 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import MatchGroup, { gamesCursor, liveEventInvalidatesCursor, pairsReducer } from './MatchGroup';
+import MatchGroup from './MatchGroup';
 
-describe('gamesCursor', () => {
-  const pair = {
-    max_id: 20,
-    min_moves: 4,
-    max_moves: 12,
-    latest_ts: '2026-01-01T00:00:00Z',
-    live_count: 1,
-    hero_wins: 2,
-    duration: 900
-  };
+class FakeIntersectionObserver {
+  observe() {}
+  disconnect() {}
+}
 
-  it('uses the active stable sort boundary', () => {
-    expect(
-      JSON.parse(
-        gamesCursor(pair, {
-          col: 'id',
-          asc: false
-        })
-      )
-    ).toEqual({
-      id: 20
-    });
+const group = {
+  runId: 'run',
+  status: 'live',
+  hero: {
+    id: 'run:1',
+    slot: 1,
+    name: 'AlphaLongName',
+    version: '1.0'
+  },
+  villain: {
+    id: 'run:2',
+    slot: 2,
+    name: 'BetaLongName',
+    version: '2.0'
+  },
+  heroWins: 4,
+  villainWins: 2,
+  draws: 3,
+  total: 9
+};
 
-    expect(
-      JSON.parse(
-        gamesCursor(pair, {
-          col: 'moves',
-          asc: true
-        })
-      )
-    ).toEqual({
-      id: 20,
-      value: 4
-    });
+const run = {
+  id: 'run',
+  status: 'live',
+  analysis_enabled: 1,
+  games_played: 9,
+  total_games: 10,
+  p1_elo: 1111,
+  p2_elo: 999,
+  p1_total_time_ms: 1200,
+  p2_total_time_ms: 1000,
+  p1_erf: 61.2,
+  p2_erf: 38.8,
+  p1_eff: 83.3,
+  p2_eff: 75,
+  p1_cma: 83.4,
+  p2_cma: 79.1,
+  p1_blunder: 4.5,
+  p2_blunder: 6.2,
+  p1_moves_analyzed: 10,
+  p2_moves_analyzed: 8,
+  p1_critical_total: 4,
+  p2_critical_total: 3,
+  p1_crashes: 0,
+  p2_crashes: 0
+};
 
-    expect(
-      JSON.parse(
-        gamesCursor(pair, {
-          col: 'status',
-          asc: false
-        })
-      )
-    ).toEqual({
-      id: 20,
-      value: 1,
-      secondary: 2
-    });
-  });
+const game = (id, blackSlot, overrides = {}) => ({
+  id,
+  external_id: `run_1_${blackSlot === 1 ? 0 : 1}`,
+  group_id: 'run_1',
+  run_id: 'run',
+  timestamp: '2026-01-01T12:00:00Z',
+  winner_color: 1,
+  move_count: 1,
+  black_slot: blackSlot,
+  white_slot: blackSlot === 1 ? 2 : 1,
+  board_size: 20,
+  opening_len: 0,
+  duration: 1234,
+  ...overrides
 });
 
-describe('liveEventInvalidatesCursor', () => {
-  it('refreshes only when live data can cross the active boundary', () => {
-    expect(liveEventInvalidatesCursor('game_start', 'id')).toBe(true);
+const pair = {
+  group_id: 'run_1',
+  pair_size: 2,
+  latest_ts: '2026-01-01T12:00:00Z',
+  max_id: 12,
+  min_moves: 1,
+  max_moves: 2,
+  live_count: 0,
+  duration: 1500,
+  slot1_wins: 1,
+  games: [
+    game(12, 2, {
+      winner_color: 2,
+      move_count: 2,
+      duration: 1500
+    }),
+    game(11, 1)
+  ]
+};
 
-    expect(liveEventInvalidatesCursor('game_move', 'moves')).toBe(true);
-
-    expect(liveEventInvalidatesCursor('game_result', 'status')).toBe(true);
-
-    expect(liveEventInvalidatesCursor('game_result', 'duration')).toBe(true);
-
-    expect(liveEventInvalidatesCursor('game_move', 'status')).toBe(false);
-
-    expect(liveEventInvalidatesCursor('game_result', 'id')).toBe(false);
-
-    expect(liveEventInvalidatesCursor('game_result', 'time')).toBe(false);
-  });
+const response = (data, ok = true) => ({
+  ok,
+  json: async () => data
 });
 
-describe('pairsReducer', () => {
-  it('normalizes completed game starts', () => {
-    const next = pairsReducer([], {
-      type: 'game_start',
-      game: {
-        id: 1,
-        group_id: 'run_1',
-        winner_color: 1,
-        black_slot: 1,
-        white_slot: 2,
-        moves: '10,10,1;11,11,2',
-        timestamp: '2026-01-01T00:00:00Z'
-      },
-      sort: {
-        col: 'id',
-        asc: false
-      },
-      firstSlot: 1
-    });
+const baseProps = {
+  group,
+  run,
+  selectedGameId: null,
+  onSelectGame: vi.fn(),
+  subscribe: () => () => {},
+  phase: 'closed',
+  preparationToken: null,
+  onRequest: vi.fn(),
+  onPrepared: vi.fn(),
+  onTransitionEnd: vi.fn()
+};
 
-    expect(next).toHaveLength(1);
+const renderPhase = (phase, props = {}) =>
+  render(<MatchGroup {...baseProps} phase={phase} {...props} />);
 
-    expect(next[0]).toMatchObject({
-      live_count: 0,
-      max_moves: 2,
-      min_moves: 2,
-      hero_wins: 1
-    });
+beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
 
-    expect(next[0].games[0].move_count).toBe(2);
-  });
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response([]));
+});
 
-  it('counts reversed-color wins for canonical S1', () => {
-    const next = pairsReducer([], {
-      type: 'game_start',
-      game: {
-        id: 2,
-        group_id: 'run_1',
-        winner_color: 2,
-        black_slot: 2,
-        white_slot: 1,
-        moves: '10,10,1;11,11,2',
-        timestamp: '2026-01-01T00:00:00Z'
-      },
-      sort: {
-        col: 'id',
-        asc: false
-      },
-      firstSlot: 1
-    });
-
-    expect(next[0].hero_wins).toBe(1);
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('MatchGroup', () => {
-  const group = {
-    runId: 'run',
-    status: 'live',
-    hero: {
-      id: 'run:1',
-      slot: 1,
-      name: 'alpha',
-      version: '1.0'
-    },
-    villain: {
-      id: 'run:2',
-      slot: 2,
-      name: 'zeta',
-      version: '99.0'
-    },
-    heroWins: 4,
-    villainWins: 2,
-    draws: 3,
-    total: 9
-  };
-
-  const run = {
-    id: 'run',
-    status: 'live',
-    games_played: 9,
-    total_games: 10,
-    p1_elo: 1111,
-    p1_erf: 61.2,
-    p1_total_time_ms: 1200,
-    p1_eff: 83.3,
-    p1_cma: 83.4,
-    p1_blunder: 4.5,
-    p1_moves_analyzed: 10,
-    p1_critical_total: 4,
-    p1_crashes: 0,
-    p2_elo: 999,
-    p2_erf: 38.8,
-    p2_total_time_ms: 1000,
-    p2_eff: 75,
-    p2_cma: 79.1,
-    p2_blunder: 6.2,
-    p2_moves_analyzed: 8,
-    p2_critical_total: 3,
-    p2_crashes: 2
-  };
-
-  let fetchMock;
-
-  beforeEach(() => {
-    fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => []
-    });
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  const renderGroup = (props = {}) =>
-    render(
-      <MatchGroup
-        group={group}
-        run={run}
-        selectedGameId={null}
-        onSelectGame={vi.fn()}
-        subscribe={() => () => {}}
-        open={false}
-        onToggle={vi.fn()}
-        {...props}
-      />
-    );
-
-  it('groups names and versions in canonical order', () => {
-    renderGroup();
+  it('renders compact summary badges and aligned identities', () => {
+    renderPhase('closed');
 
     const first = screen.getByTestId('player-row-1');
 
-    const second = screen.getByTestId('player-row-2');
-
-    expect(within(first).getByText('alpha')).toBeInTheDocument();
+    expect(within(first).getByText('AlphaLongName')).toBeInTheDocument();
 
     expect(within(first).getByText('1.0')).toBeInTheDocument();
 
-    expect(within(second).getByText('zeta')).toBeInTheDocument();
+    expect(screen.getByText('W 4')).toHaveClass('badge', 'win');
 
-    expect(within(second).getByText('99.0')).toBeInTheDocument();
+    expect(screen.getByText('L 2')).toHaveClass('badge', 'loss');
+
+    expect(screen.getByText('D 3')).toHaveClass('badge', 'draw');
+
+    expect(screen.getByText('LIVE')).toHaveClass('badge', 'run-status', 'live');
+
+    expect(screen.getByText('9/10')).toHaveClass('badge', 'run-progress', 'live');
   });
 
-  it('renders one authoritative S1 record', () => {
-    renderGroup();
+  it('keeps one arrow mounted through every phase', async () => {
+    const onPrepared = vi.fn();
 
-    expect(screen.getByText('W')).toBeInTheDocument();
-
-    expect(screen.getByText('L')).toBeInTheDocument();
-
-    expect(screen.getByText('D')).toBeInTheDocument();
-
-    expect(screen.getByLabelText('4 wins, 2 losses, 3 draws')).toBeInTheDocument();
-
-    expect(screen.getByText('9/10')).toBeInTheDocument();
-  });
-
-  it('renders no arrows or slot labels', () => {
-    const { container } = renderGroup();
-
-    expect(container.querySelector('.icon-col')).toBeNull();
-
-    expect(screen.queryByText('S1')).not.toBeInTheDocument();
-
-    expect(screen.queryByText('S2')).not.toBeInTheDocument();
-
-    expect(screen.queryByText('4W')).not.toBeInTheDocument();
-
-    expect(screen.queryByText('2W')).not.toBeInTheDocument();
-  });
-
-  it('keeps only the current leader gold', () => {
-    renderGroup();
-
-    expect(screen.getByText('alpha')).toHaveClass('gold-text');
-
-    expect(screen.getByText('zeta')).not.toHaveClass('gold-text');
-
-    expect(screen.getByText('1.0')).not.toHaveClass('gold-text');
-  });
-
-  it('does not highlight either name on ties', () => {
-    renderGroup({
-      group: {
-        ...group,
-        heroWins: 2,
-        villainWins: 2
-      }
+    const { rerender } = renderPhase('closed', {
+      onPrepared
     });
 
-    expect(screen.getByText('alpha')).not.toHaveClass('gold-text');
+    const indicator = document.querySelector('.group-indicator');
 
-    expect(screen.getByText('zeta')).not.toHaveClass('gold-text');
+    const arrow = indicator.querySelector('.group-arrow');
+
+    rerender(
+      <MatchGroup {...baseProps} phase="preparing" preparationToken={1} onPrepared={onPrepared} />
+    );
+
+    expect(document.querySelector('.group-arrow')).toBe(arrow);
+
+    await waitFor(() => expect(onPrepared).toHaveBeenCalledTimes(1));
+
+    for (const phase of ['opening', 'open', 'closing']) {
+      rerender(<MatchGroup {...baseProps} phase={phase} onPrepared={onPrepared} />);
+
+      expect(document.querySelector('.group-arrow')).toBe(arrow);
+    }
   });
 
-  it.each([
-    ['live', 'LIVE'],
-    ['ended', 'ENDED'],
-    ['stopped', 'STOPPED']
-  ])('uses authoritative %s status', (status, label) => {
-    renderGroup({
-      run: {
-        ...run,
-        status
-      }
+  it('keeps matrix and history in one animated body', async () => {
+    globalThis.fetch.mockResolvedValueOnce(response([pair]));
+
+    const onPrepared = vi.fn();
+
+    const { rerender } = renderPhase('preparing', {
+      preparationToken: 1,
+      onPrepared
     });
 
-    expect(screen.getByText(label)).toBeInTheDocument();
-  });
+    await waitFor(() => expect(onPrepared).toHaveBeenCalledTimes(1));
 
-  it('does not infer status from progress', () => {
-    renderGroup({
-      run: {
-        ...run,
-        status: 'stopped',
-        games_played: 10,
-        total_games: 10
-      }
-    });
+    rerender(<MatchGroup {...baseProps} phase="opening" onPrepared={onPrepared} />);
 
-    expect(screen.getByText('STOPPED')).toBeInTheDocument();
+    const body = document.querySelector('.group-list');
 
-    expect(screen.queryByText('ENDED')).not.toBeInTheDocument();
-  });
-
-  it('exposes expanded state semantically', () => {
-    fetchMock.mockReturnValueOnce(new Promise(() => {}));
-
-    renderGroup({
-      open: true
-    });
+    expect(body).toHaveClass('opening');
 
     expect(
-      screen.getByRole('button', {
-        name: /alpha/i
-      })
-    ).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  it('does not mount expanded controls while collapsed', () => {
-    renderGroup();
-
-    expect(
-      screen.queryByRole('region', {
-        name: 'Tournament statistics'
-      })
-    ).not.toBeInTheDocument();
-
-    expect(
-      screen.queryByRole('button', {
-        name: /sort by/i
-      })
-    ).not.toBeInTheDocument();
-  });
-
-  it('uses the matchup run snapshot when the summary list omits the run', () => {
-    renderGroup({
-      run: undefined,
-      group: {
-        ...group,
-        status: 'live',
-        total: 9,
-        run: {
-          ...run,
-          status: 'stopped',
-          games_played: 10,
-          total_games: 10
-        }
-      }
-    });
-
-    expect(screen.getByText('STOPPED')).toBeInTheDocument();
-
-    expect(screen.getByText('10/10')).toBeInTheDocument();
-  });
-
-  it('renders statistics while history is still loading', () => {
-    fetchMock.mockReset();
-    fetchMock.mockReturnValue(new Promise(() => {}));
-
-    renderGroup({
-      open: true
-    });
-
-    expect(
-      screen.getByRole('region', {
-        name: 'Tournament statistics'
+      within(body).getByRole('table', {
+        name: 'Player statistics comparison'
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByText('Eff')).toBeInTheDocument();
+    expect(within(body).getAllByTestId('match-row')).toHaveLength(2);
   });
 
-  it('stops after one failed request and retries only on demand', async () => {
-    fetchMock.mockReset();
+  it('opens initial failure into matrix and Retry', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce(
+        response(
+          {
+            error: 'failed'
+          },
+          false
+        )
+      )
+      .mockResolvedValueOnce(response([]));
 
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: false,
-        json: async () => ({
-          error: 'unavailable'
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => []
-      });
+    const onPrepared = vi.fn();
 
-    renderGroup({
-      open: true
+    const { rerender } = renderPhase('preparing', {
+      preparationToken: 1,
+      onPrepared
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load game history.');
+    await waitFor(() => expect(onPrepared).toHaveBeenCalled());
 
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    rerender(<MatchGroup {...baseProps} phase="open" onPrepared={onPrepared} />);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('table', {
+        name: 'Player statistics comparison'
+      })
+    ).toBeInTheDocument();
+
+    const retry = screen.getByRole('alert', {
+      name: 'Could not load game history'
+    });
 
     fireEvent.click(
-      screen.getByRole('button', {
+      within(retry).getByRole('button', {
         name: 'Retry'
       })
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
-  it('rejects malformed successful history responses', async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        games: []
+  it('renders canonical history rows', async () => {
+    globalThis.fetch.mockResolvedValueOnce(response([pair]));
+
+    const onPrepared = vi.fn();
+
+    const onSelectGame = vi.fn();
+
+    const { rerender } = renderPhase('preparing', {
+      preparationToken: 1,
+      onPrepared,
+      onSelectGame
+    });
+
+    await waitFor(() => expect(onPrepared).toHaveBeenCalled());
+
+    rerender(
+      <MatchGroup {...baseProps} phase="open" onPrepared={onPrepared} onSelectGame={onSelectGame} />
+    );
+
+    expect(document.querySelector('.match-header-row').textContent).toBe('IDSideMvsDurRes');
+
+    const rows = screen.getAllByTestId('match-row');
+
+    expect(rows[0].querySelector('.side-stone.black')).toBeInTheDocument();
+
+    expect(rows[1].querySelector('.side-stone.white')).toBeInTheDocument();
+
+    expect(rows[0].querySelector('.row-duration')).toHaveTextContent('1.2s');
+
+    fireEvent.click(rows[0]);
+
+    expect(onSelectGame).toHaveBeenCalledWith(11);
+  });
+
+  it('requests strict canonical server sorting', async () => {
+    globalThis.fetch.mockResolvedValue(response([pair]));
+
+    const onPrepared = vi.fn();
+
+    const { rerender } = renderPhase('preparing', {
+      preparationToken: 1,
+      onPrepared
+    });
+
+    await waitFor(() => expect(onPrepared).toHaveBeenCalled());
+
+    rerender(<MatchGroup {...baseProps} phase="open" onPrepared={onPrepared} />);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /Sort by duration/
       })
-    });
+    );
 
-    renderGroup({
-      open: true
-    });
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load game history.');
+    const url = globalThis.fetch.mock.calls[1][0];
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(url).toContain('sort=duration');
+
+    expect(url).not.toContain('hero_slot');
   });
 });

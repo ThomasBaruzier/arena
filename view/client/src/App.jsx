@@ -7,12 +7,10 @@ import MatchGroup from './components/MatchGroup';
 import { useData } from './hooks/useData';
 import { useEventSource } from './hooks/useEventSource';
 import { useGamePlayback } from './hooks/useGamePlayback';
+import { useTournamentAccordion } from './hooks/useTournamentAccordion';
 import { getRunId, matchupKey, parseMoves } from './utils';
 
 const API_BASE = '/api';
-
-const gamePath = (id, generation) =>
-  generation ? `/${id}?g=${encodeURIComponent(generation)}` : `/${id}`;
 
 const pathGameId = () => {
   const match = window.location.pathname.match(/^\/(\d+)\/?$/);
@@ -24,27 +22,33 @@ const pathGameId = () => {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 
+const gamePath = (id) => (id ? `/${id}` : '/');
+
 export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [game, setGame] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1000);
   const [initializing, setInitializing] = useState(true);
-  const [expanded, setExpanded] = useState(null);
   const [httpGeneration, setHttpGeneration] = useState(null);
+  const [boardTransitioning, setBoardTransitioning] = useState(false);
 
   const loadRef = useRef({
     id: 0,
     abort: null,
     selectedId: null
   });
+
   const latestRef = useRef({
     id: 0,
     abort: null
   });
-  const generationRef = useRef(null);
-  const sseGenerationRef = useRef(null);
+
+  const selectedRef = useRef(null);
   const gameRef = useRef(null);
   const playingRef = useRef(false);
+  const generationRef = useRef(null);
+  const sseGenerationRef = useRef(null);
+  const awaitingRecoveryRef = useRef(false);
   const matchupSentinel = useRef(null);
   const menuButtonRef = useRef(null);
 
@@ -64,49 +68,37 @@ export default function App() {
     refreshRuns
   } = useData(subscribe);
 
+  const {
+    request: requestTournament,
+    prepared: prepareTournament,
+    transitionEnd: finishTournamentTransition,
+    prune: pruneTournaments,
+    reset: resetTournaments,
+    phaseFor: tournamentPhase,
+    tokenFor: tournamentToken
+  } = useTournamentAccordion();
+
   const parsedMoves = useMemo(() => (game?.moves ? parseMoves(game.moves) : []), [game?.moves]);
 
   const playback = useGamePlayback(parsedMoves.length);
 
-  const { isPlaying, moveIndex, setIsPlaying, setMoveIndex } = playback;
+  const { isPlaying, setIsPlaying, setMoveIndex, cancelTransition, completeTransition } = playback;
 
   const runsById = useMemo(() => new Map(runs.map((run) => [String(run.id), run])), [runs]);
 
-  const closeSidebar = useCallback(() => {
-    setSidebarOpen(false);
-
-    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
-  }, []);
-
-  const clearGameSelection = useCallback(
-    (expectedId = null) => {
-      if (expectedId != null && String(loadRef.current.selectedId) !== String(expectedId)) {
-        return;
-      }
-
-      loadRef.current.abort?.abort();
-      loadRef.current.abort = null;
-      loadRef.current.id += 1;
-      loadRef.current.selectedId = null;
-      gameRef.current = null;
-      playingRef.current = false;
-
-      setSelectedId(null);
-      setGame(null);
-      setIsPlaying(false);
-      setMoveIndex(0);
-
-      window.history.replaceState(null, '', '/');
-    },
-    [setIsPlaying, setMoveIndex]
-  );
-
+  selectedRef.current = selectedId;
   loadRef.current.selectedId = selectedId;
 
   useEffect(() => {
     gameRef.current = game;
     playingRef.current = isPlaying;
   }, [game, isPlaying]);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+
+    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     if (!sidebarOpen) {
@@ -131,9 +123,10 @@ export default function App() {
     (data, { stopPlayback = false } = {}) => {
       const incomingCount = parseMoves(data.moves).length;
       const current = gameRef.current;
-      const currentCount = parseMoves(current?.moves).length;
+      const sameGame = current && String(current.id) === String(data.id);
+      const currentCount = sameGame ? parseMoves(current.moves).length : 0;
 
-      if (current && String(current.id) === String(data.id)) {
+      if (sameGame) {
         const currentTerminal = current.winner_color && current.winner_color !== 0;
         const incomingLive = !data.winner_color || data.winner_color === 0;
 
@@ -146,44 +139,100 @@ export default function App() {
         }
       }
 
-      setGame(data);
+      if (!sameGame) {
+        cancelTransition();
+        setBoardTransitioning(false);
+      }
+
       gameRef.current = data;
-      setMoveIndex(incomingCount);
+      setGame(data);
+
+      if (stopPlayback || !sameGame || (!playingRef.current && incomingCount > currentCount)) {
+        cancelTransition();
+        setMoveIndex(incomingCount);
+      }
 
       if (stopPlayback) {
-        setIsPlaying(false);
         playingRef.current = false;
+        setIsPlaying(false);
       }
     },
-    [setMoveIndex, setIsPlaying]
+    [cancelTransition, setMoveIndex, setIsPlaying]
   );
 
-  const fetchGame = useCallback((id, expectedGeneration, options = {}) => {
-    const suffix = expectedGeneration ? `?g=${encodeURIComponent(expectedGeneration)}` : '';
+  const clearGameSelection = useCallback(() => {
+    loadRef.current.abort?.abort();
+    loadRef.current.abort = null;
+    loadRef.current.id += 1;
+    loadRef.current.selectedId = null;
+    selectedRef.current = null;
+    gameRef.current = null;
+    playingRef.current = false;
 
-    return fetch(`${API_BASE}/game/${id}${suffix}`, options).then((response) => {
-      if (response.ok) {
-        return response.json();
+    cancelTransition();
+    setSelectedId(null);
+    setGame(null);
+    setIsPlaying(false);
+    setMoveIndex(0);
+    setBoardTransitioning(false);
+
+    window.history.replaceState(null, '', '/');
+  }, [cancelTransition, setIsPlaying, setMoveIndex]);
+
+  const resetViewer = useCallback(
+    (nextGeneration = null) => {
+      if (nextGeneration) {
+        generationRef.current = nextGeneration;
+        setHttpGeneration(nextGeneration);
       }
 
-      const error = new Error('game request failed');
+      awaitingRecoveryRef.current = true;
 
-      error.status = response.status;
+      clearGameSelection();
+      resetTournaments();
+    },
+    [clearGameSelection, resetTournaments]
+  );
 
-      throw error;
-    });
-  }, []);
+  const selectGame = useCallback(
+    (id, { closeControls = true } = {}) => {
+      cancelTransition();
+      selectedRef.current = id;
+      loadRef.current.selectedId = id;
+
+      setSelectedId(id);
+      setBoardTransitioning(false);
+
+      window.history.replaceState(null, '', gamePath(id));
+
+      if (closeControls && window.innerWidth <= 1000) {
+        closeSidebar();
+      }
+    },
+    [cancelTransition, closeSidebar]
+  );
+
+  const fetchGame = useCallback(
+    (id, options = {}) =>
+      fetch(`${API_BASE}/game/${id}`, options).then((response) => {
+        if (response.ok) {
+          return response.json();
+        }
+
+        const error = new Error('game request failed');
+
+        error.status = response.status;
+
+        throw error;
+      }),
+    []
+  );
 
   useEffect(() => {
-    if (!initializing) {
-      return undefined;
-    }
-
     latestRef.current.abort?.abort();
 
     const controller = new AbortController();
     const requestId = ++latestRef.current.id;
-    const expectedGeneration = generation;
 
     latestRef.current.abort = controller;
 
@@ -202,17 +251,9 @@ export default function App() {
         }
 
         const responseGeneration = response.headers?.get?.('x-arena-generation') || null;
-        const currentSseGeneration = sseGenerationRef.current;
+        const currentGeneration = sseGenerationRef.current;
 
-        if (expectedGeneration && responseGeneration && expectedGeneration !== responseGeneration) {
-          throw new Error('stale latest game response');
-        }
-
-        if (
-          currentSseGeneration &&
-          responseGeneration &&
-          currentSseGeneration !== responseGeneration
-        ) {
+        if (responseGeneration && currentGeneration && responseGeneration !== currentGeneration) {
           throw new Error('stale latest game response');
         }
 
@@ -220,37 +261,19 @@ export default function App() {
           return;
         }
 
-        const acceptedGeneration =
-          responseGeneration || currentSseGeneration || expectedGeneration || null;
-
         if (responseGeneration) {
           setHttpGeneration(responseGeneration);
         }
 
-        const requestedId = pathGameId();
-        const requestedGeneration = new URLSearchParams(window.location.search).get('g');
+        const requested = pathGameId();
+        const id = requested ?? data.id;
 
-        if (requestedId) {
-          if (
-            requestedGeneration &&
-            acceptedGeneration &&
-            requestedGeneration !== acceptedGeneration
-          ) {
-            clearGameSelection();
-            return;
-          }
-
-          setSelectedId(requestedId);
-
-          window.history.replaceState(null, '', gamePath(requestedId, acceptedGeneration));
-
-          return;
-        }
-
-        if (data.id) {
-          setSelectedId(data.id);
-
-          window.history.replaceState(null, '', gamePath(data.id, acceptedGeneration));
+        if (id) {
+          selectGame(id, {
+            closeControls: false
+          });
+        } else {
+          window.history.replaceState(null, '', '/');
         }
       })
       .catch((error) => {
@@ -265,8 +288,10 @@ export default function App() {
         }
       });
 
-    return () => controller.abort();
-  }, [generation, initializing, clearGameSelection]);
+    return () => {
+      controller.abort();
+    };
+  }, [clearGameSelection, selectGame]);
 
   useEffect(() => {
     if (!viewerGeneration) {
@@ -275,13 +300,13 @@ export default function App() {
 
     const previous = generationRef.current;
 
-    generationRef.current = viewerGeneration;
-
     if (previous && previous !== viewerGeneration) {
-      clearGameSelection();
-      setExpanded(null);
+      resetViewer(viewerGeneration);
+      return;
     }
-  }, [viewerGeneration, clearGameSelection]);
+
+    generationRef.current = viewerGeneration;
+  }, [viewerGeneration, resetViewer]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -296,7 +321,7 @@ export default function App() {
     loadRef.current.abort = controller;
     loadRef.current.selectedId = selectedId;
 
-    fetchGame(selectedId, viewerGeneration, {
+    fetchGame(selectedId, {
       signal: controller.signal
     })
       .then((data) => {
@@ -312,63 +337,96 @@ export default function App() {
       .catch((error) => {
         if (
           error.name !== 'AbortError' &&
-          (error.status === 404 || error.status === 409) &&
+          error.status === 404 &&
           requestId === loadRef.current.id
         ) {
-          clearGameSelection(selectedId);
+          clearGameSelection();
+        }
+      })
+      .finally(() => {
+        if (loadRef.current.abort === controller) {
+          loadRef.current.abort = null;
         }
       });
 
     if (!initializing) {
-      window.history.replaceState(null, '', gamePath(selectedId, viewerGeneration));
+      window.history.replaceState(null, '', gamePath(selectedId));
     }
 
-    return () => controller.abort();
-  }, [selectedId, viewerGeneration, initializing, fetchGame, applyLoadedGame, clearGameSelection]);
+    return () => {
+      controller.abort();
+    };
+  }, [selectedId, initializing, fetchGame, applyLoadedGame, clearGameSelection]);
 
-  useEffect(() => {
-    if (!selectedId) {
-      return undefined;
-    }
+  useEffect(
+    () =>
+      subscribe((event) => {
+        if (event.type === 'reset') {
+          resetViewer(event.generation || null);
+          return;
+        }
 
-    return subscribe((event) => {
-      if (event.type === 'reset') {
-        clearGameSelection(selectedId);
-        setExpanded(null);
-        return;
-      }
+        if (
+          event.type === 'game_start' &&
+          event.game &&
+          awaitingRecoveryRef.current &&
+          !selectedRef.current &&
+          event.game.winner_color === 0
+        ) {
+          const recovered = event.game;
+          const recoveredCount = parseMoves(recovered.moves).length;
 
-      const eventId = event.game?.id ?? event.id;
+          awaitingRecoveryRef.current = false;
+          selectedRef.current = recovered.id;
+          loadRef.current.selectedId = recovered.id;
+          gameRef.current = recovered;
+          playingRef.current = false;
 
-      if (String(eventId) !== String(selectedId)) {
-        return;
-      }
+          cancelTransition();
+          setSelectedId(recovered.id);
+          setGame(recovered);
+          setIsPlaying(false);
+          setMoveIndex(recoveredCount);
+          setBoardTransitioning(false);
 
-      if (event.type === 'game_start') {
-        setGame((current) => {
+          window.history.replaceState(null, '', gamePath(recovered.id));
+        }
+
+        const selected = selectedRef.current;
+
+        if (!selected) {
+          return;
+        }
+
+        const eventId = event.game?.id ?? event.id;
+
+        if (String(eventId) !== String(selected)) {
+          return;
+        }
+
+        if (event.type === 'game_start') {
           const next = {
-            ...current,
+            ...gameRef.current,
             ...event.game
           };
 
           gameRef.current = next;
-          return next;
-        });
+          setGame(next);
+          return;
+        }
 
-        return;
-      }
+        if (event.type === 'game_move') {
+          const current = gameRef.current;
 
-      if (event.type === 'game_move') {
-        setGame((current) => {
           if (current?.winner_color && current.winner_color !== 0) {
-            return current;
+            return;
           }
 
           const currentCount = parseMoves(current?.moves).length;
           const incomingCount = parseMoves(event.moves).length;
 
           if (incomingCount < currentCount) {
-            return current;
+            return;
           }
 
           const next = {
@@ -380,16 +438,20 @@ export default function App() {
           };
 
           gameRef.current = next;
-          return next;
-        });
+          setGame(next);
 
-        return;
-      }
+          if (!playingRef.current && incomingCount > currentCount) {
+            cancelTransition();
+            setMoveIndex(incomingCount);
+          }
 
-      if (event.type === 'game_result') {
-        const resultMoves = event.moves ?? gameRef.current?.moves ?? '';
+          return;
+        }
 
-        setGame((current) => {
+        if (event.type === 'game_result') {
+          const current = gameRef.current;
+          const currentCount = parseMoves(current?.moves).length;
+
           const next = {
             ...current,
             group_id: event.group_id ?? current?.group_id,
@@ -399,28 +461,23 @@ export default function App() {
             duration: event.duration ?? current?.duration
           };
 
+          const nextCount = parseMoves(next.moves).length;
+
           gameRef.current = next;
-          return next;
-        });
+          setGame(next);
 
-        if (!playingRef.current) {
-          setMoveIndex(parseMoves(resultMoves).length);
+          if (!playingRef.current && nextCount > currentCount) {
+            cancelTransition();
+            setMoveIndex(nextCount);
+          }
         }
-      }
-    });
-  }, [selectedId, subscribe, setMoveIndex, clearGameSelection]);
+      }),
+    [subscribe, resetViewer, cancelTransition, setIsPlaying, setMoveIndex]
+  );
 
   useEffect(() => {
-    if (game?.winner_color === 0 && !isPlaying && moveIndex < parsedMoves.length) {
-      setMoveIndex(parsedMoves.length);
-    }
-  }, [game, isPlaying, moveIndex, parsedMoves.length, setMoveIndex]);
-
-  useEffect(() => {
-    const keys = new Set(matchups.map(matchupKey));
-
-    setExpanded((key) => (key && keys.has(key) ? key : null));
-  }, [matchups]);
+    pruneTournaments(new Set(matchups.map(matchupKey)));
+  }, [matchups, pruneTournaments]);
 
   useEffect(() => {
     if (!matchupSentinel.current) {
@@ -451,46 +508,29 @@ export default function App() {
     loadMoreMatchups(true);
     refreshRuns().catch(() => {});
 
-    if (!selectedId) return;
+    const selected = selectedRef.current;
 
-    const refreshId = selectedId;
-    const refreshGeneration = viewerGeneration;
+    if (!selected) return;
 
-    fetchGame(refreshId, refreshGeneration)
+    fetchGame(selected)
       .then((data) => {
-        if (
-          String(refreshId) === String(loadRef.current.selectedId) &&
-          refreshGeneration === generationRef.current
-        ) {
+        if (String(selected) === String(selectedRef.current)) {
           applyLoadedGame(data);
         }
       })
       .catch((error) => {
-        if (error.status === 404 || error.status === 409) {
-          clearGameSelection(refreshId);
+        if (error.status === 404) {
+          clearGameSelection();
         }
       });
   }, [
     connectionEpoch,
-    viewerGeneration,
-    selectedId,
+    loadMoreMatchups,
+    refreshRuns,
     fetchGame,
     applyLoadedGame,
-    clearGameSelection,
-    loadMoreMatchups,
-    refreshRuns
+    clearGameSelection
   ]);
-
-  const selectGame = useCallback(
-    (id) => {
-      setSelectedId(id);
-
-      if (window.innerWidth <= 1000) {
-        closeSidebar();
-      }
-    },
-    [closeSidebar]
-  );
 
   if (initializing) {
     return (
@@ -546,17 +586,22 @@ export default function App() {
 
           {matchups.map((group) => {
             const key = matchupKey(group);
+            const phase = tournamentPhase(key);
+            const preparationToken = tournamentToken(key);
 
             return (
               <MatchGroup
-                key={`${key}:${viewerGeneration ?? 'unknown'}:${connectionEpoch}`}
+                key={key}
                 group={group}
                 run={runsById.get(String(getRunId(group)))}
                 selectedGameId={selectedId}
                 onSelectGame={selectGame}
                 subscribe={subscribe}
-                open={expanded === key}
-                onToggle={() => setExpanded((current) => (current === key ? null : key))}
+                phase={phase}
+                preparationToken={preparationToken}
+                onRequest={() => requestTournament(key)}
+                onPrepared={() => prepareTournament(key, preparationToken)}
+                onTransitionEnd={() => finishTournamentTransition(key)}
               />
             );
           })}
@@ -604,10 +649,17 @@ export default function App() {
                 parsedMoves={parsedMoves}
                 moveIndex={playback.moveIndex}
                 winnerColor={game.winner_color}
+                transition={playback.transition}
                 boardSize={game.board_size}
+                onTransitionChange={setBoardTransitioning}
+                onTransitionComplete={completeTransition}
               />
 
-              <ControlDeck {...playback} totalMoves={parsedMoves.length} />
+              <ControlDeck
+                {...playback}
+                totalMoves={parsedMoves.length}
+                visualTransitioning={boardTransitioning}
+              />
             </>
           ) : (
             <div className="empty-stage">

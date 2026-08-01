@@ -1,7 +1,9 @@
 const missing = (value) => value == null || value === '';
 
-const formatNumber = (value, digits = 1) => {
-  if (missing(value)) return '-';
+const numberValue = (value, digits = 0) => {
+  if (missing(value)) {
+    return '-';
+  }
 
   const number = Number(value);
 
@@ -9,13 +11,13 @@ const formatNumber = (value, digits = 1) => {
     return '-';
   }
 
-  return number.toLocaleString(undefined, {
-    maximumFractionDigits: digits
-  });
+  return number.toFixed(digits);
 };
 
-const formatPercent = (value) => {
-  if (missing(value)) return '-';
+const percentValue = (value) => {
+  if (missing(value)) {
+    return '-';
+  }
 
   const number = Number(value);
 
@@ -23,11 +25,13 @@ const formatPercent = (value) => {
     return '-';
   }
 
-  return `${number.toFixed(1)}%`;
+  return `${Math.abs(number) >= 100 ? number.toFixed(0) : number.toFixed(1)}%`;
 };
 
-const formatTime = (value) => {
-  if (missing(value)) return '-';
+export const tournamentTimeValue = (value) => {
+  if (missing(value)) {
+    return '-';
+  }
 
   const milliseconds = Number(value);
 
@@ -45,82 +49,90 @@ const formatTime = (value) => {
     return `${seconds}s`;
   }
 
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
+  const totalMinutes = Math.floor(seconds / 60);
 
-  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m${String(seconds % 60).padStart(2, '0')}s`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+
+  if (hours >= 100) {
+    return '100h+';
+  }
+
+  return `${hours}h${String(totalMinutes % 60).padStart(2, '0')}`;
 };
 
-const Row = ({ label, first, second }) => (
+const availablePercent = (samples, value) => (Number(samples) > 0 ? percentValue(value) : '-');
+
+const valuesFor = (run, side, crashed, analyzed) => {
+  const values = [
+    numberValue(run[`${side}_elo`]),
+    crashed
+      ? numberValue(run[`${side}_crashes`])
+      : tournamentTimeValue(run[`${side}_total_time_ms`]),
+    percentValue(run[`${side}_erf`]),
+    percentValue(run[`${side}_eff`])
+  ];
+
+  if (analyzed) {
+    values.push(
+      availablePercent(run[`${side}_critical_total`], run[`${side}_cma`]),
+      availablePercent(run[`${side}_moves_analyzed`], run[`${side}_blunder`])
+    );
+  }
+
+  return values;
+};
+
+const PlayerRow = ({ label, values }) => (
   <div className="stats-row" role="row">
-    <span className="stats-label" role="rowheader">
+    <span className="stats-player" role="rowheader">
       {label}
     </span>
-    <span role="cell">{first}</span>
-    <span role="cell">{second}</span>
+
+    {values.map((value, index) => (
+      <span key={index} role="cell" title={value}>
+        {value}
+      </span>
+    ))}
   </div>
 );
 
-export default function TournamentStats({ group, run }) {
+export default function TournamentStats({ run }) {
   if (!run) return null;
 
-  const showBlunder = run.p1_moves_analyzed > 0 || run.p2_moves_analyzed > 0;
-  const showCma = run.p1_critical_total > 0 || run.p2_critical_total > 0;
-  const showCrashes = run.p1_crashes > 0 || run.p2_crashes > 0;
+  const analyzed = Boolean(run.analysis_enabled);
+
+  const crashed = Number(run.p1_crashes) > 0 || Number(run.p2_crashes) > 0;
+
+  const headings = ['Elo', crashed ? 'Crash' : 'Time', 'ERF', 'Eff'];
+
+  if (analyzed) {
+    headings.push('CMA', 'Bln');
+  }
 
   return (
     <section className="tournament-stats" aria-label="Tournament statistics">
-      <div className="stats-table" role="table" aria-label="Player statistics comparison">
-        <div role="rowgroup">
-          <div className="stats-row stats-head" role="row">
-            <span aria-hidden="true" />
-            <span role="columnheader" title={group.hero.name}>
-              {group.hero.name}
+      <div
+        className={`stats-table ${analyzed ? 'analyzed' : 'core'}`}
+        role="table"
+        aria-label="Player statistics comparison"
+      >
+        <div className="stats-row stats-head" role="row">
+          <span role="columnheader" aria-label="Player" />
+
+          {headings.map((heading) => (
+            <span key={heading} role="columnheader">
+              {heading}
             </span>
-            <span role="columnheader" title={group.villain.name}>
-              {group.villain.name}
-            </span>
-          </div>
+          ))}
         </div>
 
-        <div role="rowgroup">
-          <Row
-            label="Elo"
-            first={formatNumber(run.p1_elo, 0)}
-            second={formatNumber(run.p2_elo, 0)}
-          />
-          <Row
-            label="Time"
-            first={formatTime(run.p1_total_time_ms)}
-            second={formatTime(run.p2_total_time_ms)}
-          />
-          <Row label="ERF" first={formatPercent(run.p1_erf)} second={formatPercent(run.p2_erf)} />
-          <Row label="Eff" first={formatPercent(run.p1_eff)} second={formatPercent(run.p2_eff)} />
+        <PlayerRow label="P1" values={valuesFor(run, 'p1', crashed, analyzed)} />
 
-          {showCma && (
-            <Row
-              label="CMA"
-              first={run.p1_critical_total > 0 ? formatPercent(run.p1_cma) : '-'}
-              second={run.p2_critical_total > 0 ? formatPercent(run.p2_cma) : '-'}
-            />
-          )}
-
-          {showBlunder && (
-            <Row
-              label="Blunder"
-              first={run.p1_moves_analyzed > 0 ? formatPercent(run.p1_blunder) : '-'}
-              second={run.p2_moves_analyzed > 0 ? formatPercent(run.p2_blunder) : '-'}
-            />
-          )}
-
-          {showCrashes && (
-            <Row
-              label="Crashes"
-              first={formatNumber(run.p1_crashes, 0)}
-              second={formatNumber(run.p2_crashes, 0)}
-            />
-          )}
-        </div>
+        <PlayerRow label="P2" values={valuesFor(run, 'p2', crashed, analyzed)} />
       </div>
     </section>
   );
