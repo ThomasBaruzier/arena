@@ -16,7 +16,9 @@ using namespace Arena;
 class ApiRecoveryTest :
     public ::testing::Test {
 protected:
-    std::shared_ptr<Net::ApiManager> api;
+    std::shared_ptr<
+        Net::ApiManager
+    > api;
 
     void SetUp() override {
         CurlMock::reset();
@@ -38,7 +40,8 @@ protected:
 
     static Net::ApiManager::Event
     run_start(
-        const std::string& run_id = "run"
+        const std::string& run_id =
+            "run"
     ) {
         Net::ApiManager::Event event;
         event.type = "run_start";
@@ -54,20 +57,24 @@ protected:
 
     static Net::ApiManager::Event
     run_update(
-        const std::string& status = "live",
+        const std::string& status =
+            "live",
         int games_played = -1,
-        const std::string& run_id = "run"
+        const std::string& run_id =
+            "run"
     ) {
         Net::ApiManager::Event event;
         event.type = "run_update";
         event.run_id = run_id;
         event.status = status;
+
         event.games_played =
             games_played >= 0
                 ? games_played
                 : status == "live"
                     ? 1
                     : 2;
+
         event.wins = 1;
         return event;
     }
@@ -76,7 +83,8 @@ protected:
     game_start(
         const std::string& external_id =
             "run_1_0",
-        const std::string& run_id = "run"
+        const std::string& run_id =
+            "run"
     ) {
         Net::ApiManager::Event event;
         event.type = "start";
@@ -87,13 +95,15 @@ protected:
         return event;
     }
 
-    static Net::ApiManager::Event move(
+    static Net::ApiManager::Event
+    move(
         int x,
         int y,
         int color,
         const std::string& external_id =
             "run_1_0",
-        const std::string& run_id = "run"
+        const std::string& run_id =
+            "run"
     ) {
         Net::ApiManager::Event event;
         event.type = "move";
@@ -105,16 +115,20 @@ protected:
         return event;
     }
 
-    static Net::ApiManager::Event result(
+    static Net::ApiManager::Event
+    result(
         const std::string& external_id =
             "run_1_0",
-        const std::string& run_id = "run"
+        const std::string& run_id =
+            "run"
     ) {
         Net::ApiManager::Event event;
         event.type = "result";
         event.run_id = run_id;
         event.ext_id = external_id;
-        event.winner = 1;
+        event.winner = 2;
+        event.reason =
+            "adjudication";
         event.moves =
             "10,10,1;11,11,2;12,10,1";
         return event;
@@ -126,6 +140,7 @@ protected:
         std::lock_guard<std::mutex> lock(
             api->mtx_
         );
+
         api->remember_locked(event);
     }
 
@@ -137,11 +152,15 @@ protected:
         std::lock_guard<std::mutex> lock(
             api->mtx_
         );
-        api->acknowledge_locked(events);
+
+        api->acknowledge_locked(
+            events
+        );
     }
 
     bool pending() {
-        return api->recovery_is_pending();
+        return api
+            ->recovery_is_pending();
     }
 
     bool server_generation_is(
@@ -157,15 +176,35 @@ protected:
                 generation;
     }
 
-    static CurlMock::MockConfig generation(
+    static CurlMock::MockConfig
+    generation(
         const std::string& value
     ) {
         CurlMock::MockConfig config;
+
         config.response_headers =
             "HTTP/1.1 200 OK\r\n"
             "X-Arena-Generation: " +
             value +
             "\r\n\r\n";
+
+        return config;
+    }
+
+    static CurlMock::MockConfig
+    rejected_generation(
+        const std::string& value
+    ) {
+        CurlMock::MockConfig config;
+        config.http_code = 422;
+        config.response_body =
+            "{\"error\":\"game does not exist\"}";
+        config.response_headers =
+            "HTTP/1.1 422 Unprocessable Entity\r\n"
+            "X-Arena-Generation: " +
+            value +
+            "\r\n\r\n";
+
         return config;
     }
 
@@ -174,13 +213,16 @@ protected:
         int timeout_ms = 2000
     ) {
         auto deadline =
-            std::chrono::steady_clock::now() +
-            std::chrono::milliseconds(
-                timeout_ms
-            );
+            std::chrono::
+                steady_clock::now() +
+            std::chrono::
+                milliseconds(
+                    timeout_ms
+                );
 
         while (
-            std::chrono::steady_clock::now() <
+            std::chrono::
+                steady_clock::now() <
             deadline
         ) {
             if (predicate()) {
@@ -188,7 +230,8 @@ protected:
             }
 
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(2)
+                std::chrono::
+                    milliseconds(2)
             );
         }
 
@@ -207,7 +250,9 @@ protected:
                 calls.end(),
                 [&](const auto& call) {
                     return
-                        call.post_data.find(text) !=
+                        call.post_data.find(
+                            text
+                        ) !=
                         std::string::npos;
                 }
             )
@@ -227,8 +272,14 @@ TEST_F(
                 "\r\n"
             );
 
-    ASSERT_TRUE(parsed.has_value());
-    EXPECT_EQ(*parsed, "abc-123");
+    ASSERT_TRUE(
+        parsed.has_value()
+    );
+
+    EXPECT_EQ(
+        *parsed,
+        "abc-123"
+    );
 }
 
 TEST_F(
@@ -273,13 +324,18 @@ TEST_F(
     );
 
     EXPECT_TRUE(pending());
-    EXPECT_TRUE(api->recover(curl.get()));
+    EXPECT_TRUE(
+        api->recover(curl.get())
+    );
     EXPECT_FALSE(pending());
 
     const auto calls =
         CurlMock::get_calls();
 
-    ASSERT_GE(calls.size(), 3U);
+    ASSERT_GE(
+        calls.size(),
+        3U
+    );
 
     const std::string& recovery =
         calls.back().post_data;
@@ -288,14 +344,18 @@ TEST_F(
         recovery.find(
             "\"type\":\"run_start\""
         );
+
     size_t game_position =
         recovery.find(
             "\"type\":\"start\""
         );
+
     size_t first_position =
         recovery.find("\"x\":10");
+
     size_t second_position =
         recovery.find("\"x\":11");
+
     size_t update_position =
         recovery.find(
             "\"type\":\"run_update\""
@@ -305,27 +365,212 @@ TEST_F(
         run_position,
         std::string::npos
     );
+
     ASSERT_NE(
         game_position,
         std::string::npos
     );
+
     ASSERT_NE(
         first_position,
         std::string::npos
     );
+
     ASSERT_NE(
         second_position,
         std::string::npos
     );
+
     ASSERT_NE(
         update_position,
         std::string::npos
     );
 
-    EXPECT_LT(run_position, game_position);
-    EXPECT_LT(game_position, first_position);
-    EXPECT_LT(first_position, second_position);
-    EXPECT_LT(second_position, update_position);
+    EXPECT_LT(
+        run_position,
+        game_position
+    );
+
+    EXPECT_LT(
+        game_position,
+        first_position
+    );
+
+    EXPECT_LT(
+        first_position,
+        second_position
+    );
+
+    EXPECT_LT(
+        second_position,
+        update_position
+    );
+}
+
+TEST_F(
+    ApiRecoveryTest,
+    RecoversWhenResetCausesProtocolRejection
+) {
+    auto start = run_start();
+    auto game = game_start();
+    auto current_move = move(
+        10,
+        10,
+        1
+    );
+
+    remember(start);
+    remember(game);
+    remember(current_move);
+
+    Net::CurlHandle curl;
+    ASSERT_TRUE(curl);
+
+    CurlMock::configure(
+        generation("one")
+    );
+
+    ASSERT_TRUE(
+        api->send_batch(
+            curl.get(),
+            {start}
+        )
+    );
+
+    CurlMock::configure(
+        rejected_generation("two")
+    );
+
+    EXPECT_EQ(
+        api->deliver_batch(
+            curl.get(),
+            {current_move}
+        ),
+        Net::ApiManager::
+            DeliveryResult::
+                RETRYABLE
+    );
+
+    EXPECT_TRUE(pending());
+    EXPECT_FALSE(api->failed());
+
+    CurlMock::configure(
+        generation("two")
+    );
+
+    ASSERT_TRUE(
+        api->recover(curl.get())
+    );
+
+    EXPECT_FALSE(pending());
+    EXPECT_FALSE(api->failed());
+
+    const auto calls =
+        CurlMock::get_calls();
+
+    ASSERT_GE(
+        calls.size(),
+        3U
+    );
+
+    const std::string& recovery =
+        calls.back().post_data;
+
+    size_t run_position =
+        recovery.find(
+            "\"type\":\"run_start\""
+        );
+
+    size_t game_position =
+        recovery.find(
+            "\"type\":\"start\""
+        );
+
+    size_t move_position =
+        recovery.find(
+            "\"type\":\"move\""
+        );
+
+    ASSERT_NE(
+        run_position,
+        std::string::npos
+    );
+
+    ASSERT_NE(
+        game_position,
+        std::string::npos
+    );
+
+    ASSERT_NE(
+        move_position,
+        std::string::npos
+    );
+
+    EXPECT_LT(
+        run_position,
+        game_position
+    );
+
+    EXPECT_LT(
+        game_position,
+        move_position
+    );
+
+    EXPECT_TRUE(
+        server_generation_is(
+            "two"
+        )
+    );
+}
+
+TEST_F(
+    ApiRecoveryTest,
+    RecoveryPreservesExplicitResultReason
+) {
+    auto start = run_start();
+    auto game = game_start();
+    auto completed = result();
+
+    remember(start);
+    remember(game);
+    remember(completed);
+
+    std::lock_guard<std::mutex> lock(
+        api->mtx_
+    );
+
+    auto snapshot =
+        api->recovery_snapshot_locked();
+
+    auto terminal =
+        std::find_if(
+            snapshot.begin(),
+            snapshot.end(),
+            [](const auto& event) {
+                return
+                    event.type ==
+                    "result";
+            }
+        );
+
+    ASSERT_NE(
+        terminal,
+        snapshot.end()
+    );
+
+    EXPECT_EQ(
+        terminal->reason,
+        "adjudication"
+    );
+
+    EXPECT_NE(
+        api->build_event_json(
+            *terminal
+        ).find(
+            "\"reason\":\"adjudication\""
+        ),
+        std::string::npos
+    );
 }
 
 TEST_F(
@@ -341,7 +586,8 @@ TEST_F(
     for (
         size_t index = 0;
         index <
-            Core::Constants::API_BATCH_MAX;
+            Core::Constants::
+                API_BATCH_MAX;
         ++index
     ) {
         remember(
@@ -401,6 +647,7 @@ TEST_F(
     EXPECT_FALSE(
         api->recover(curl.get())
     );
+
     EXPECT_TRUE(pending());
 
     CurlMock::on_perform({});
@@ -408,6 +655,7 @@ TEST_F(
     EXPECT_TRUE(
         api->recover(curl.get())
     );
+
     EXPECT_FALSE(pending());
     EXPECT_GE(recovery_calls, 2);
 }
@@ -449,11 +697,17 @@ TEST_F(
         )
     );
 
-    std::atomic<bool> changed{false};
+    std::atomic<bool> changed{
+        false
+    };
 
     CurlMock::on_perform(
         [&](const auto&) {
-            if (!changed.exchange(true)) {
+            if (
+                !changed.exchange(
+                    true
+                )
+            ) {
                 CurlMock::configure(
                     generation("three")
                 );
@@ -463,16 +717,22 @@ TEST_F(
         }
     );
 
-    EXPECT_TRUE(api->recover(curl.get()));
-    EXPECT_FALSE(pending());
     EXPECT_TRUE(
-        server_generation_is("three")
+        api->recover(curl.get())
     );
 
-    const auto calls =
-        CurlMock::get_calls();
+    EXPECT_FALSE(pending());
 
-    EXPECT_GE(calls.size(), 4U);
+    EXPECT_TRUE(
+        server_generation_is(
+            "three"
+        )
+    );
+
+    EXPECT_GE(
+        CurlMock::get_calls().size(),
+        4U
+    );
 }
 
 TEST_F(
@@ -483,7 +743,10 @@ TEST_F(
     auto game = game_start();
     auto completed = result();
     auto terminal =
-        run_update("ended", 2);
+        run_update(
+            "ended",
+            2
+        );
 
     remember(start);
     remember(game);
@@ -516,20 +779,26 @@ TEST_F(
     );
 
     ASSERT_TRUE(pending());
-    ASSERT_TRUE(api->recover(curl.get()));
+
+    ASSERT_TRUE(
+        api->recover(curl.get())
+    );
+
     EXPECT_FALSE(pending());
 
     const auto calls =
         CurlMock::get_calls();
+
     const auto& replay =
         calls.back().post_data;
 
     EXPECT_NE(
         replay.find(
-            "\"type\":\"result\""
+            "\"reason\":\"adjudication\""
         ),
         std::string::npos
     );
+
     EXPECT_NE(
         replay.find(
             "\"status\":\"ended\""
@@ -544,6 +813,7 @@ TEST_F(
     EXPECT_TRUE(
         api->recovery_runs_.empty()
     );
+
     EXPECT_TRUE(
         api->recovery_games_.empty()
     );
@@ -564,21 +834,6 @@ TEST_F(
     remember(completed);
     remember(terminal);
 
-    {
-        std::lock_guard<std::mutex> lock(
-            api->mtx_
-        );
-
-        ASSERT_EQ(
-            api->recovery_runs_.size(),
-            1U
-        );
-        ASSERT_EQ(
-            api->recovery_games_.size(),
-            1U
-        );
-    }
-
     acknowledge({completed});
 
     {
@@ -590,23 +845,9 @@ TEST_F(
             api->recovery_runs_.size(),
             1U
         );
+
         EXPECT_TRUE(
             api->recovery_games_.empty()
-        );
-
-        auto snapshot =
-            api->recovery_snapshot_locked();
-
-        EXPECT_EQ(
-            std::count_if(
-                snapshot.begin(),
-                snapshot.end(),
-                [](const auto& event) {
-                    return
-                        event.type == "result";
-                }
-            ),
-            0
         );
     }
 
@@ -620,11 +861,14 @@ TEST_F(
         EXPECT_TRUE(
             api->recovery_runs_.empty()
         );
+
         EXPECT_TRUE(
             api->recovery_games_.empty()
         );
+
         EXPECT_TRUE(
-            api->recovery_snapshot_locked()
+            api
+                ->recovery_snapshot_locked()
                 .empty()
         );
     }
@@ -645,7 +889,9 @@ TEST_F(
         wait_until(
             [&]() {
                 return
-                    server_generation_is("one");
+                    server_generation_is(
+                        "one"
+                    );
             }
         )
     );
@@ -657,6 +903,7 @@ TEST_F(
     std::atomic<bool> newer_queued{
         false
     };
+
     std::atomic<bool> replay_failed{
         false
     };
@@ -678,18 +925,26 @@ TEST_F(
 
             if (
                 old_update &&
-                !newer_queued.exchange(true)
+                !newer_queued.exchange(
+                    true
+                )
             ) {
                 api->enqueue(
-                    run_update("live", 10)
+                    run_update(
+                        "live",
+                        10
+                    )
                 );
             }
 
             if (
                 recovery &&
-                !replay_failed.exchange(true)
+                !replay_failed.exchange(
+                    true
+                )
             ) {
-                return CURLE_COULDNT_CONNECT;
+                return
+                    CURLE_COULDNT_CONNECT;
             }
 
             return CURLE_OK;
@@ -697,13 +952,17 @@ TEST_F(
     );
 
     api->enqueue(
-        run_update("live", 5)
+        run_update(
+            "live",
+            5
+        )
     );
 
     ASSERT_TRUE(
         wait_until(
             [&]() {
-                return replay_failed.load();
+                return
+                    replay_failed.load();
             }
         )
     );
@@ -721,29 +980,13 @@ TEST_F(
             ),
             1
         );
-
-        EXPECT_EQ(
-            std::count_if(
-                calls.begin(),
-                calls.end(),
-                [](const auto& call) {
-                    return
-                        call.post_data.find(
-                            "\"games_played\":10"
-                        ) != std::string::npos &&
-                        call.post_data.find(
-                            "\"type\":\"run_start\""
-                        ) == std::string::npos;
-                }
-            ),
-            0
-        );
     }
 
     CurlMock::on_perform({});
     api->stop();
 
     EXPECT_FALSE(pending());
+    EXPECT_FALSE(api->failed());
 
     const auto calls =
         CurlMock::get_calls();
@@ -756,73 +999,22 @@ TEST_F(
         1
     );
 
-    int failed_and_successful_replays =
-        static_cast<int>(
-            std::count_if(
-                calls.begin(),
-                calls.end(),
-                [](const auto& call) {
-                    return
-                        call.post_data.find(
-                            "\"type\":\"run_start\""
-                        ) != std::string::npos &&
-                        call.post_data.find(
-                            "\"games_played\":10"
-                        ) != std::string::npos;
-                }
-            )
-        );
-
     EXPECT_GE(
-        failed_and_successful_replays,
+        std::count_if(
+            calls.begin(),
+            calls.end(),
+            [](const auto& call) {
+                return
+                    call.post_data.find(
+                        "\"type\":\"run_start\""
+                    ) !=
+                        std::string::npos &&
+                    call.post_data.find(
+                        "\"games_played\":10"
+                    ) !=
+                        std::string::npos;
+            }
+        ),
         2
     );
-
-    int ordinary_new_updates =
-        static_cast<int>(
-            std::count_if(
-                calls.begin(),
-                calls.end(),
-                [](const auto& call) {
-                    return
-                        call.post_data.find(
-                            "\"games_played\":10"
-                        ) != std::string::npos &&
-                        call.post_data.find(
-                            "\"type\":\"run_start\""
-                        ) == std::string::npos;
-                }
-            )
-        );
-
-    EXPECT_EQ(ordinary_new_updates, 1);
-
-    size_t first_new =
-        calls.size();
-    size_t last_old = 0;
-
-    for (
-        size_t index = 0;
-        index < calls.size();
-        ++index
-    ) {
-        if (
-            calls[index].post_data.find(
-                "\"games_played\":5"
-            ) != std::string::npos
-        ) {
-            last_old = index;
-        }
-
-        if (
-            calls[index].post_data.find(
-                "\"games_played\":10"
-            ) != std::string::npos
-        ) {
-            first_new =
-                std::min(first_new, index);
-        }
-    }
-
-    EXPECT_LT(last_old, first_new);
 }

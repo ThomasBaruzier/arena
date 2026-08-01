@@ -50,9 +50,29 @@ int final_exit_code(
             EXIT_CODE_SUCCESS;
 }
 
+void stop_api(
+    const std::shared_ptr<
+        Net::ApiManager
+    >& api,
+    std::atomic<bool>& system_failure
+) {
+    if (!api) {
+        return;
+    }
+
+    api->stop();
+
+    if (api->failed()) {
+        system_failure = true;
+    }
 }
 
-int main(int argc, char* argv[]) {
+}
+
+int main(
+    int argc,
+    char* argv[]
+) {
     signal(SIGPIPE, SIG_IGN);
 
     Sys::g_stop_flag = 0;
@@ -81,7 +101,6 @@ int main(int argc, char* argv[]) {
     }
 
     bool had_bot_failure = false;
-
     std::atomic<bool> system_failure{
         false
     };
@@ -104,7 +123,8 @@ int main(int argc, char* argv[]) {
 
         if (batch.debug) {
             Core::Logger::set_level(
-                Core::Logger::Level::DEBUG
+                Core::Logger::Level::
+                    DEBUG
             );
         }
 
@@ -148,9 +168,7 @@ int main(int argc, char* argv[]) {
                 );
             }
 
-            if (
-                batch.shuffle_openings
-            ) {
+            if (batch.shuffle_openings) {
                 std::mt19937 generator(
                     std::random_device{}()
                 );
@@ -297,17 +315,40 @@ int main(int argc, char* argv[]) {
         > game_queue;
 
         std::mutex task_mtx;
-
-        std::condition_variable
-            task_cv;
-
-        std::atomic<int>
-            active_games = 0;
-
+        std::condition_variable task_cv;
+        std::atomic<int> active_games{0};
         std::mutex ndjson_mtx;
 
         const auto& primary_config =
             contexts.front()->cfg;
+
+        std::atomic<int>
+            evaluator_workers_initializing{
+                batch.eval_cmd.empty()
+                    ? 0
+                    : primary_config.threads
+            };
+
+        std::atomic<int>
+            evaluator_workers_available{0};
+
+        auto make_worker_state = [&]() {
+            return App::WorkerState{
+                eval_queue,
+                game_queue,
+                global_game_queue,
+                task_mtx,
+                task_cv,
+                active_games,
+                evaluator_workers_initializing,
+                evaluator_workers_available,
+                api,
+                contexts,
+                batch,
+                ndjson_out,
+                ndjson_mtx
+            };
+        };
 
         auto stop_for_system_failure =
             [&](const std::string& message) {
@@ -351,19 +392,8 @@ int main(int argc, char* argv[]) {
                     config =
                         primary_config
                 ]() {
-                    App::WorkerState state{
-                        eval_queue,
-                        game_queue,
-                        global_game_queue,
-                        task_mtx,
-                        task_cv,
-                        active_games,
-                        api,
-                        contexts,
-                        batch,
-                        ndjson_out,
-                        ndjson_mtx
-                    };
+                    auto state =
+                        make_worker_state();
 
                     try {
                         App::
@@ -397,19 +427,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (Sys::g_stop_flag) {
-            App::WorkerState state{
-                eval_queue,
-                game_queue,
-                global_game_queue,
-                task_mtx,
-                task_cv,
-                active_games,
-                api,
-                contexts,
-                batch,
-                ndjson_out,
-                ndjson_mtx
-            };
+            auto state =
+                make_worker_state();
 
             App::finalize_all_runs(
                 state
@@ -462,9 +481,10 @@ int main(int argc, char* argv[]) {
             );
         }
 
-        if (api) {
-            api->stop();
-        }
+        stop_api(
+            api,
+            system_failure
+        );
 
         curl_global_cleanup();
 
@@ -475,9 +495,10 @@ int main(int argc, char* argv[]) {
     } catch (
         const Core::MatchTerminated&
     ) {
-        if (api) {
-            api->stop();
-        }
+        stop_api(
+            api,
+            system_failure
+        );
 
         curl_global_cleanup();
 
@@ -496,9 +517,10 @@ int main(int argc, char* argv[]) {
             error.what()
         );
 
-        if (api) {
-            api->stop();
-        }
+        stop_api(
+            api,
+            system_failure
+        );
 
         curl_global_cleanup();
 

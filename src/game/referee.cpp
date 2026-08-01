@@ -29,15 +29,11 @@ struct InitializationError :
 
 struct OpeningError :
     std::runtime_error {
-    using std::runtime_error::
-        runtime_error;
+    using std::runtime_error::runtime_error;
 };
 
-Net::ApiManager::Event
-make_run_start_event(
-    const std::shared_ptr<
-        App::RunContext
-    >& context,
+Net::ApiManager::Event make_run_start_event(
+    const std::shared_ptr<App::RunContext>& context,
     const Player& slot1,
     const Player& slot2
 ) {
@@ -52,6 +48,8 @@ make_run_start_event(
     event.p2_cmd = slot2.path();
     event.config_label =
         context->config_label;
+    event.analysis_enabled =
+        context->cfg.eval_enabled();
     event.total_games =
         context->total_games_expected;
     event.p1_nodes =
@@ -77,15 +75,12 @@ make_run_start_event(
 
 Referee::Referee(
     App::GameParams params,
-    std::shared_ptr<
-        Net::ApiManager
-    > api,
+    std::shared_ptr<Net::ApiManager> api,
     Stats::Tracker& stats,
     ResultCallback callback
 ) :
     wall_start_(
-        std::chrono::
-            steady_clock::now()
+        std::chrono::steady_clock::now()
     ),
     p_(std::move(params)),
     api_(std::move(api)),
@@ -125,9 +120,8 @@ Referee::~Referee() {
     ) {
         try {
             send_result_event(
-                Sys::g_stop_flag
-                    ? -1.0
-                    : 0.5
+                -1.0,
+                ResultReason::VOID
             );
         } catch (...) {
         }
@@ -137,10 +131,25 @@ Referee::~Referee() {
     pl2_.stop();
 }
 
+const char* Referee::result_reason_text(
+    ResultReason reason
+) {
+    switch (reason) {
+        case ResultReason::LINE:
+            return "line";
+        case ResultReason::DRAW:
+            return "draw";
+        case ResultReason::ADJUDICATION:
+            return "adjudication";
+        case ResultReason::VOID:
+            return "void";
+    }
+
+    return "void";
+}
+
 Referee::Status Referee::step(
-    std::vector<
-        Core::Point
-    >& out_history
+    std::vector<Core::Point>& out_history
 ) {
     try {
         if (
@@ -157,8 +166,7 @@ Referee::Status Referee::step(
             ? Status::FINISHED
             : Status::RUNNING;
     } catch (
-        const Core::PlayerError&
-            error
+        const Core::PlayerError& error
     ) {
         Core::Logger::log(
             Core::Logger::Level::WARN,
@@ -179,7 +187,8 @@ Referee::Status Referee::step(
             loser ==
                 Core::PlayerColor::BLACK
                 ? 0.0
-                : 1.0
+                : 1.0,
+            ResultReason::ADJUDICATION
         );
 
         if (
@@ -204,7 +213,12 @@ Referee::Status Referee::step(
             state_ ==
             State::INITIALIZED
         ) {
-            finish(-1.0);
+            declare_game_if_needed();
+
+            finish(
+                -1.0,
+                ResultReason::VOID
+            );
         } else {
             pl1_.stop();
             pl2_.stop();
@@ -212,8 +226,7 @@ Referee::Status Referee::step(
 
         throw;
     } catch (
-        const InitializationError&
-            error
+        const InitializationError& error
     ) {
         Core::Logger::log(
             Core::Logger::Level::ERROR,
@@ -221,15 +234,18 @@ Referee::Status Referee::step(
             p_.pair,
             " Leg ",
             p_.leg,
-            " System Error: ",
+            " Initialization Error: ",
             error.what()
         );
 
+        declare_game_if_needed();
         record_crash(error.player);
+
         finish(
             loss_for_player(
                 error.player
-            )
+            ),
+            ResultReason::ADJUDICATION
         );
 
         if (
@@ -238,7 +254,7 @@ Referee::Status Referee::step(
         ) {
             Core::Logger::log(
                 Core::Logger::Level::ERROR,
-                "STRICT MODE: Exiting due to system error: ",
+                "STRICT MODE: Exiting due to initialization error: ",
                 error.what()
             );
 
@@ -264,7 +280,10 @@ Referee::Status Referee::step(
             p_.context->failed = true;
         }
 
-        finish(-1.0);
+        finish(
+            -1.0,
+            ResultReason::VOID
+        );
 
         if (
             p_.config()
@@ -303,7 +322,8 @@ Referee::Status Referee::step(
             loser ==
                 Core::PlayerColor::BLACK
                 ? 0.0
-                : 1.0
+                : 1.0,
+            ResultReason::ADJUDICATION
         );
 
         if (
@@ -407,9 +427,7 @@ double Referee::loss_for_player(
 }
 
 void Referee::initialize_game(
-    std::vector<
-        Core::Point
-    >& out_history
+    std::vector<Core::Point>& out_history
 ) {
     state_ = State::INITIALIZED;
 
@@ -428,6 +446,7 @@ void Referee::initialize_game(
 
     long long memory1 =
         p_.p1_cfg.memory;
+
     long long memory2 =
         p_.p2_cfg.memory;
 
@@ -452,14 +471,6 @@ void Referee::initialize_game(
             Core::Constants::
                 PROCESS_MEMORY_OVERHEAD;
     }
-
-    if (p_.context) {
-        send_run_start_event_if_needed(
-            p_.context
-        );
-    }
-
-    send_start_event();
 
     if (
         !pl1_.start(
@@ -515,11 +526,7 @@ void Referee::initialize_game(
         );
     }
 
-    if (p_.context) {
-        update_run_metadata_event(
-            p_.context
-        );
-    }
+    declare_game_if_needed();
 
     pl1_.set_lenient(
         p_.p1_cfg.lenient
@@ -569,6 +576,16 @@ void Referee::initialize_game(
     out_history = hist_;
 }
 
+void Referee::declare_game_if_needed() {
+    if (p_.context) {
+        send_run_start_event_if_needed(
+            p_.context
+        );
+    }
+
+    send_start_event();
+}
+
 void Referee::init_player(
     Player& player,
     Core::BotConfig& config
@@ -604,9 +621,11 @@ void Referee::init_player(
                 config.max_nodes
             )
         );
+
         player.send(
             "INFO timeout_turn 0"
         );
+
         player.send(
             "INFO timeout_match 0"
         );
@@ -617,6 +636,7 @@ void Referee::init_player(
                 config.timeout_announce
             )
         );
+
         player.send(
             "INFO timeout_match " +
             std::to_string(
@@ -631,28 +651,33 @@ void Referee::init_player(
             config.memory
         )
     );
+
     player.send(
         "INFO game_type 1"
     );
+
     player.send(
         "INFO rule 0"
     );
+
     player.send(
         "INFO THREAD_NUM 1"
     );
 }
 
 bool Referee::play_turn(
-    std::vector<
-        Core::Point
-    >& out_history
+    std::vector<Core::Point>& out_history
 ) {
     if (
         moves_ >=
         p_.config().board_size *
             p_.config().board_size
     ) {
-        finish(0.5);
+        finish(
+            0.5,
+            ResultReason::DRAW
+        );
+
         return true;
     }
 
@@ -795,6 +820,7 @@ bool Referee::play_turn(
             }
 
             long local_elapsed = 0;
+
             int remaining =
                 turn_limit -
                 static_cast<int>(used);
@@ -811,6 +837,7 @@ bool Referee::play_turn(
                         0L,
                         local_elapsed
                     );
+
                 throw;
             }
 
@@ -916,7 +943,8 @@ bool Referee::play_turn(
             color ==
                 Core::PlayerColor::BLACK
                 ? 1.0
-                : 0.0
+                : 0.0,
+            ResultReason::LINE
         );
 
         return true;
@@ -947,7 +975,8 @@ void Referee::apply_move(
 }
 
 void Referee::finish(
-    double result
+    double result,
+    ResultReason reason
 ) {
     result_sent_ = true;
     pl1_.stop();
@@ -1012,7 +1041,7 @@ void Referee::finish(
         std::stringstream text;
 
         if (score < 0) {
-            text << "(crash)";
+            text << "(void)";
             return text.str();
         }
 
@@ -1039,6 +1068,7 @@ void Referee::finish(
 
     send_result_event(
         result,
+        reason,
         wall_ms
     );
 
@@ -1273,9 +1303,7 @@ Referee::parse_and_validate_move(
 
 void Referee::
 send_run_start_event_if_needed(
-    std::shared_ptr<
-        App::RunContext
-    > context
+    const std::shared_ptr<App::RunContext>& context
 ) {
     std::lock_guard<std::mutex> lock(
         context->name_mtx
@@ -1284,8 +1312,6 @@ send_run_start_event_if_needed(
     if (context->names_set) {
         return;
     }
-
-    context->names_set = true;
 
     Player& slot1 =
         p_.leg == 0
@@ -1299,67 +1325,17 @@ send_run_start_event_if_needed(
 
     context->p1_name =
         slot1.name();
+
     context->p1_version =
         slot1.version();
+
     context->p2_name =
         slot2.name();
+
     context->p2_version =
         slot2.version();
 
-    if (api_) {
-        api_->enqueue(
-            make_run_start_event(
-                context,
-                slot1,
-                slot2
-            )
-        );
-    }
-}
-
-void Referee::
-update_run_metadata_event(
-    std::shared_ptr<
-        App::RunContext
-    > context
-) {
-    Player& slot1 =
-        p_.leg == 0
-            ? pl1_
-            : pl2_;
-
-    Player& slot2 =
-        p_.leg == 0
-            ? pl2_
-            : pl1_;
-
-    {
-        std::lock_guard<std::mutex> lock(
-            context->name_mtx
-        );
-
-        if (
-            context->p1_name ==
-                slot1.name() &&
-            context->p1_version ==
-                slot1.version() &&
-            context->p2_name ==
-                slot2.name() &&
-            context->p2_version ==
-                slot2.version()
-        ) {
-            return;
-        }
-
-        context->p1_name =
-            slot1.name();
-        context->p1_version =
-            slot1.version();
-        context->p2_name =
-            slot2.name();
-        context->p2_version =
-            slot2.version();
-    }
+    context->names_set = true;
 
     if (api_) {
         api_->enqueue(
@@ -1436,7 +1412,10 @@ void Referee::validate_opening_move(
 }
 
 void Referee::send_start_event() {
-    if (!api_) {
+    if (
+        !api_ ||
+        start_sent_
+    ) {
         return;
     }
 
@@ -1485,6 +1464,7 @@ void Referee::send_move_event(
 
 void Referee::send_result_event(
     double result,
+    ResultReason reason,
     long duration
 ) {
     if (
@@ -1531,6 +1511,9 @@ void Referee::send_result_event(
                     ? 4
                     : 3;
 
+    event.reason =
+        result_reason_text(reason);
+
     event.op_len =
         get_opening_size();
 
@@ -1554,6 +1537,7 @@ Referee::create_event(
         std::to_string(p_.pair) +
         "_" +
         std::to_string(p_.leg);
+
     return event;
 }
 

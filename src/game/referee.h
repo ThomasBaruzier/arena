@@ -3,6 +3,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 #include "player.h"
 #include "../app/context.h"
@@ -28,9 +29,7 @@ public:
 
     Referee(
         App::GameParams params,
-        std::shared_ptr<
-            Net::ApiManager
-        > api,
+        std::shared_ptr<Net::ApiManager> api,
         Stats::Tracker& stats,
         ResultCallback callback
     );
@@ -38,9 +37,7 @@ public:
     ~Referee();
 
     Status step(
-        std::vector<
-            Core::Point
-        >& out_history
+        std::vector<Core::Point>& out_history
     );
 
     int get_opening_size() const {
@@ -61,39 +58,47 @@ private:
         INITIALIZED
     };
 
+    enum class ResultReason {
+        LINE,
+        DRAW,
+        ADJUDICATION,
+        VOID
+    };
+
+    static const char* result_reason_text(
+        ResultReason reason
+    );
+
     Core::PlayerColor current_player() const;
+
     int slot_for_color(
         Core::PlayerColor color
     ) const;
+
     int slot_for_player(
         const Player* player
     ) const;
+
     void record_crash(
         Core::PlayerColor loser
     );
+
     void record_crash(
         Player* player
     );
+
     double loss_for_player(
         const Player* player
     ) const;
 
     void initialize_game(
-        std::vector<
-            Core::Point
-        >& out_history
+        std::vector<Core::Point>& out_history
     );
+
+    void declare_game_if_needed();
 
     void send_run_start_event_if_needed(
-        std::shared_ptr<
-            App::RunContext
-        > context
-    );
-
-    void update_run_metadata_event(
-        std::shared_ptr<
-            App::RunContext
-        > context
+        const std::shared_ptr<App::RunContext>& context
     );
 
     Net::ApiManager::Event create_event(
@@ -119,9 +124,7 @@ private:
     );
 
     bool play_turn(
-        std::vector<
-            Core::Point
-        >& out_history
+        std::vector<Core::Point>& out_history
     );
 
     void send_turn_command(
@@ -140,29 +143,28 @@ private:
         const Core::Point& move
     );
 
-    void finish(double result);
+    void finish(
+        double result,
+        ResultReason reason
+    );
 
     void send_result_event(
         double result,
+        ResultReason reason,
         long duration = 0
     );
 
     void print_board();
 
-    std::chrono::steady_clock::time_point
-        wall_start_;
+    std::chrono::steady_clock::time_point wall_start_;
     App::GameParams p_;
-    std::shared_ptr<
-        Net::ApiManager
-    > api_;
+    std::shared_ptr<Net::ApiManager> api_;
     Stats::Tracker& stats_;
     ResultCallback cb_;
     Player pl1_;
     Player pl2_;
     std::vector<int> board_;
-    std::vector<
-        Core::Point
-    > hist_;
+    std::vector<Core::Point> hist_;
     int moves_ = 0;
     int time_p1_ = 0;
     int time_p2_ = 0;

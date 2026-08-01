@@ -11,7 +11,8 @@ namespace CurlMock {
 struct MockConfig {
     CURLcode perform_result = CURLE_OK;
     long http_code = 200;
-    std::string response_body;
+    std::string response_body =
+        "{\"success\":true}";
     std::string response_headers =
         "HTTP/1.1 200 OK\r\n"
         "X-Arena-Generation: test-generation\r\n"
@@ -30,11 +31,20 @@ public:
     static State& instance();
 
     void reset();
-    void set_config(const MockConfig& cfg);
+
+    void set_config(
+        const MockConfig& config
+    );
+
     MockConfig get_config() const;
 
-    void record_call(const CallRecord& record);
-    std::vector<CallRecord> get_calls() const;
+    void record_call(
+        const CallRecord& record
+    );
+
+    std::vector<CallRecord>
+    get_calls() const;
+
     size_t call_count() const;
 
     void set_perform_callback(
@@ -49,9 +59,11 @@ public:
 
 private:
     State() = default;
+
     mutable std::mutex mtx_;
     MockConfig config_;
     std::vector<CallRecord> calls_;
+
     std::function<CURLcode(
         const CallRecord&
     )> perform_cb_;
@@ -64,15 +76,20 @@ inline void reset() {
 inline void configure(
     const MockConfig& config
 ) {
-    State::instance().set_config(config);
+    State::instance().set_config(
+        config
+    );
 }
 
 inline size_t call_count() {
-    return State::instance().call_count();
+    return State::instance()
+        .call_count();
 }
 
-inline std::vector<CallRecord> get_calls() {
-    return State::instance().get_calls();
+inline std::vector<CallRecord>
+get_calls() {
+    return State::instance()
+        .get_calls();
 }
 
 inline void on_perform(
@@ -80,9 +97,10 @@ inline void on_perform(
         const CallRecord&
     )> callback
 ) {
-    State::instance().set_perform_callback(
-        callback
-    );
+    State::instance()
+        .set_perform_callback(
+            std::move(callback)
+        );
 }
 
 inline void fail_init() {

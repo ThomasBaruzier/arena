@@ -1,22 +1,29 @@
 #include "openings.h"
+#include "rules.h"
 #include <fstream>
 #include <limits>
 #include <stdexcept>
 
 namespace Arena::Game {
 
-std::vector<std::vector<Core::Point>>
-Openings::load(const std::string& path) {
+std::vector<
+    std::vector<Core::Point>
+> Openings::load(
+    const std::string& path
+) {
     std::ifstream file(path);
 
     if (!file.is_open()) {
         throw std::runtime_error(
-            "Cannot open openings: " + path
+            "Cannot open openings: " +
+            path
         );
     }
 
-    std::vector<std::vector<Core::Point>>
-        openings;
+    std::vector<
+        std::vector<Core::Point>
+    > openings;
+
     std::string line;
     size_t line_number = 0;
 
@@ -30,16 +37,22 @@ Openings::load(const std::string& path) {
             line.pop_back();
         }
 
-        if (line.empty()) continue;
+        if (line.empty()) {
+            continue;
+        }
 
         try {
             openings.push_back(
                 parse_line(line)
             );
-        } catch (const std::exception& error) {
+        } catch (
+            const std::exception& error
+        ) {
             throw std::runtime_error(
                 "Invalid opening at line " +
-                std::to_string(line_number) +
+                std::to_string(
+                    line_number
+                ) +
                 ": " +
                 error.what()
             );
@@ -56,18 +69,26 @@ Openings::parse_line(
     std::vector<Core::Point> moves;
     size_t position = 0;
 
-    while (position < line.size()) {
+    while (
+        position < line.size()
+    ) {
         unsigned char column =
-            static_cast<unsigned char>(
-                line[position]
-            );
+            static_cast<
+                unsigned char
+            >(line[position]);
 
         bool lowercase =
-            column >= 'a' && column <= 'z';
-        bool uppercase =
-            column >= 'A' && column <= 'Z';
+            column >= 'a' &&
+            column <= 'z';
 
-        if (!lowercase && !uppercase) {
+        bool uppercase =
+            column >= 'A' &&
+            column <= 'Z';
+
+        if (
+            !lowercase &&
+            !uppercase
+        ) {
             throw std::runtime_error(
                 "expected column letter"
             );
@@ -78,7 +99,9 @@ Openings::parse_line(
             : column - 'A';
 
         ++position;
-        size_t row_start = position;
+
+        size_t row_start =
+            position;
 
         while (
             position < line.size() &&
@@ -88,27 +111,39 @@ Openings::parse_line(
             ++position;
         }
 
-        if (row_start == position) {
+        if (
+            row_start == position
+        ) {
             throw std::runtime_error(
                 "expected row number"
             );
         }
 
-        std::string row_text = line.substr(
-            row_start,
-            position - row_start
-        );
+        std::string row_text =
+            line.substr(
+                row_start,
+                position - row_start
+            );
 
         size_t consumed = 0;
+
         long long row =
-            std::stoll(row_text, &consumed);
+            std::stoll(
+                row_text,
+                &consumed
+            );
 
         if (
-            consumed != row_text.size() ||
+            consumed !=
+                row_text.size() ||
             row < 1 ||
             row >
-                static_cast<long long>(
-                    std::numeric_limits<int>::max()
+                static_cast<
+                    long long
+                >(
+                    std::numeric_limits<
+                        int
+                    >::max()
                 )
         ) {
             throw std::runtime_error(
@@ -118,7 +153,9 @@ Openings::parse_line(
 
         moves.push_back({
             x,
-            static_cast<int>(row - 1)
+            static_cast<int>(
+                row - 1
+            )
         });
     }
 
@@ -147,10 +184,14 @@ void Openings::validate(
         );
     }
 
-    std::vector<bool> occupied(
-        static_cast<size_t>(board_size) *
-        static_cast<size_t>(board_size),
-        false
+    std::vector<int> board(
+        static_cast<size_t>(
+            board_size
+        ) *
+            static_cast<size_t>(
+                board_size
+            ),
+        0
     );
 
     for (
@@ -158,7 +199,8 @@ void Openings::validate(
         index < opening.size();
         ++index
     ) {
-        const auto& move = opening[index];
+        const auto& move =
+            opening[index];
 
         if (
             move.x < 0 ||
@@ -168,25 +210,58 @@ void Openings::validate(
         ) {
             throw std::runtime_error(
                 "Opening move " +
-                std::to_string(index + 1) +
+                std::to_string(
+                    index + 1
+                ) +
                 " is out of bounds"
             );
         }
 
         size_t cell =
-            static_cast<size_t>(move.y) *
-            static_cast<size_t>(board_size) +
-            static_cast<size_t>(move.x);
+            static_cast<size_t>(
+                move.y
+            ) *
+                static_cast<size_t>(
+                    board_size
+                ) +
+            static_cast<size_t>(
+                move.x
+            );
 
-        if (occupied[cell]) {
+        if (board[cell] != 0) {
             throw std::runtime_error(
                 "Opening move " +
-                std::to_string(index + 1) +
+                std::to_string(
+                    index + 1
+                ) +
                 " repeats an occupied coordinate"
             );
         }
 
-        occupied[cell] = true;
+        int color =
+            static_cast<int>(
+                index % 2
+            ) + 1;
+
+        board[cell] = color;
+
+        if (
+            Rules::check_win(
+                board,
+                board_size,
+                move.x,
+                move.y,
+                color
+            )
+        ) {
+            throw std::runtime_error(
+                "Opening move " +
+                std::to_string(
+                    index + 1
+                ) +
+                " creates a terminal position"
+            );
+        }
     }
 }
 

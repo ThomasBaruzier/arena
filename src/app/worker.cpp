@@ -10,6 +10,47 @@
 #include <chrono>
 #include <iomanip>
 #include <optional>
+#include <utility>
+
+namespace {
+
+class EvaluatorAvailability {
+public:
+    EvaluatorAvailability(
+        std::atomic<int>& available,
+        std::condition_variable& task_cv
+    ) :
+        available_(available),
+        task_cv_(task_cv)
+    {}
+
+    ~EvaluatorAvailability() {
+        disable();
+    }
+
+    void enable() {
+        if (enabled_) return;
+
+        available_.fetch_add(1);
+        enabled_ = true;
+        task_cv_.notify_all();
+    }
+
+    void disable() {
+        if (!enabled_) return;
+
+        available_.fetch_sub(1);
+        enabled_ = false;
+        task_cv_.notify_all();
+    }
+
+private:
+    std::atomic<int>& available_;
+    std::condition_variable& task_cv_;
+    bool enabled_ = false;
+};
+
+}
 
 namespace Arena::App {
 
@@ -21,6 +62,42 @@ struct TaskResult {
     bool stop = false;
     bool retry = false;
 };
+
+bool stop_on_api_failure(
+    WorkerState& state
+) {
+    if (
+        !state.api ||
+        !state.api->failed()
+    ) {
+        return false;
+    }
+
+    for (
+        const auto& context :
+        state.contexts
+    ) {
+        context->failed = true;
+        context->stop_flag = true;
+    }
+
+    Sys::g_stop_flag = 1;
+    state.task_cv.notify_all();
+    return true;
+}
+
+bool can_claim_evaluation(
+    bool has_evaluator,
+    int workers_initializing,
+    int workers_available
+) {
+    return
+        has_evaluator ||
+        (
+            workers_initializing == 0 &&
+            workers_available == 0
+        );
+}
 
 double slot1_pair_score(
     double first_leg_black_score,
@@ -251,6 +328,12 @@ std::string format_ndjson_line(
         "p2_cmd",
         batch.p2_cmd
     );
+    json.add_raw(
+        "analysis_enabled",
+        batch.eval_cmd.empty()
+            ? "false"
+            : "true"
+    );
     json.add(
         "p1_nodes",
         run.p1_nodes
@@ -390,9 +473,7 @@ static void finalize_run(
     >& api,
     bool incomplete
 ) {
-    if (!context) {
-        return;
-    }
+    if (!context) return;
 
     std::call_once(
         context->finalized_flag,
@@ -478,9 +559,7 @@ static void finalize_run(
                 );
             }
 
-            if (
-                ndjson_out.is_open()
-            ) {
+            if (ndjson_out.is_open()) {
                 std::lock_guard<
                     std::mutex
                 > lock(ndjson_mtx);
@@ -575,10 +654,39 @@ static void mark_evaluator_failure(
     }
 }
 
+static bool evaluation_claimable(
+    const WorkerState& state,
+    bool has_evaluator
+) {
+    return
+        !state.eval_queue.empty() &&
+        can_claim_evaluation(
+            has_evaluator,
+            state
+                .evaluator_workers_initializing
+                .load(),
+            state
+                .evaluator_workers_available
+                .load()
+        );
+}
+
 static TaskResult fetch_next_task(
     WorkerState& state,
-    int thread_limit
+    int thread_limit,
+    bool has_evaluator
 ) {
+    if (
+        stop_on_api_failure(state)
+    ) {
+        return {
+            std::nullopt,
+            nullptr,
+            true,
+            false
+        };
+    }
+
     std::unique_lock<
         std::mutex
     > lock(state.task_mtx);
@@ -592,7 +700,14 @@ static TaskResult fetch_next_task(
         [&]() {
             return
                 Sys::g_stop_flag ||
-                !state.eval_queue.empty() ||
+                (
+                    state.api &&
+                    state.api->failed()
+                ) ||
+                evaluation_claimable(
+                    state,
+                    has_evaluator
+                ) ||
                 !state.game_queue.empty() ||
                 (
                     state.active_games.load() <
@@ -604,6 +719,17 @@ static TaskResult fetch_next_task(
         }
     );
 
+    if (
+        stop_on_api_failure(state)
+    ) {
+        return {
+            std::nullopt,
+            nullptr,
+            true,
+            false
+        };
+    }
+
     if (Sys::g_stop_flag) {
         return {
             std::nullopt,
@@ -614,7 +740,10 @@ static TaskResult fetch_next_task(
     }
 
     if (
-        !state.eval_queue.empty()
+        evaluation_claimable(
+            state,
+            has_evaluator
+        )
     ) {
         EvalJob job =
             std::move(
@@ -633,9 +762,7 @@ static TaskResult fetch_next_task(
         };
     }
 
-    if (
-        !state.game_queue.empty()
-    ) {
+    if (!state.game_queue.empty()) {
         auto game =
             std::move(
                 state
@@ -702,7 +829,6 @@ static TaskResult fetch_next_task(
         state.active_games.fetch_add(1);
 
         auto callback = [
-            &state,
             context = params.context,
             api = state.api
         ](
@@ -711,9 +837,7 @@ static TaskResult fetch_next_task(
             double black_score,
             long wall_ms
         ) {
-            if (!context) {
-                return;
-            }
+            if (!context) return;
 
             context
                 ->total_wall_time_ms
@@ -1017,6 +1141,42 @@ static void process_metrics(
         );
 }
 
+static void initialize_evaluator(
+    WorkerState& state,
+    std::unique_ptr<
+        Analysis::Evaluator
+    >& evaluator,
+    EvaluatorAvailability& availability
+) {
+    if (state.bc.eval_cmd.empty()) {
+        return;
+    }
+
+    evaluator =
+        std::make_unique<
+            Analysis::Evaluator
+        >(
+            state.bc.eval_cmd,
+            state.bc.board_size,
+            state.bc
+                .eval_timeout_cutoff,
+            state.bc.exit_on_crash,
+            state.bc
+                .eval_nodes_list
+                .empty()
+                ? Core::Constants::
+                    DEFAULT_EVAL_NODES
+                : state.bc
+                    .eval_nodes_list[0]
+        );
+
+    if (evaluator->start()) {
+        availability.enable();
+    } else {
+        evaluator.reset();
+    }
+}
+
 void interleaved_worker_loop(
     const Core::Config& config,
     WorkerState& state
@@ -1025,62 +1185,80 @@ void interleaved_worker_loop(
         Analysis::Evaluator
     > evaluator;
 
-    if (
-        !state.bc.eval_cmd.empty()
-    ) {
-        evaluator =
-            std::make_unique<
-                Analysis::Evaluator
-            >(
-                state.bc.eval_cmd,
-                state.bc.board_size,
-                state.bc
-                    .eval_timeout_cutoff,
-                state.bc.exit_on_crash,
-                state.bc
-                    .eval_nodes_list
-                    .empty()
-                    ? Core::Constants::
-                        DEFAULT_EVAL_NODES
-                    : state.bc
-                        .eval_nodes_list[0]
-            );
+    EvaluatorAvailability availability(
+        state.evaluator_workers_available,
+        state.task_cv
+    );
 
-        try {
-            if (!evaluator->start()) {
-                evaluator.reset();
-            }
-        } catch (
-            const Core::MatchTerminated&
-        ) {
-            mark_evaluator_failure(
-                state,
-                nullptr
-            );
-            throw;
+    bool initialization_pending =
+        !state.bc.eval_cmd.empty();
+
+    auto complete_initialization = [&]() {
+        if (!initialization_pending) {
+            return;
         }
+
+        initialization_pending = false;
+
+        state
+            .evaluator_workers_initializing
+            .fetch_sub(1);
+
+        state.task_cv.notify_all();
+    };
+
+    try {
+        initialize_evaluator(
+            state,
+            evaluator,
+            availability
+        );
+
+        complete_initialization();
+    } catch (
+        const Core::MatchTerminated&
+    ) {
+        complete_initialization();
+
+        mark_evaluator_failure(
+            state,
+            nullptr
+        );
+
+        throw;
+    } catch (...) {
+        complete_initialization();
+        throw;
     }
+
+    auto disable_evaluator = [&]() {
+        availability.disable();
+        evaluator.reset();
+        state.task_cv.notify_all();
+    };
 
     while (true) {
         TaskResult task =
             fetch_next_task(
                 state,
-                config.threads
+                config.threads,
+                evaluator != nullptr
             );
 
-        if (task.stop) {
-            break;
-        }
-
-        if (task.retry) {
-            continue;
-        }
+        if (task.stop) break;
+        if (task.retry) continue;
 
         if (task.eval) {
             EvalJob job =
                 std::move(*task.eval);
 
+            bool completed = false;
+
             auto complete = [&]() {
+                if (completed) return;
+
+                completed = true;
+
                 job.context
                     ->pending_evaluations
                     .fetch_sub(1);
@@ -1089,6 +1267,8 @@ void interleaved_worker_loop(
                     job.context,
                     state
                 );
+
+                state.task_cv.notify_all();
             };
 
             try {
@@ -1147,10 +1327,7 @@ void interleaved_worker_loop(
                             )
                     ) {
                         Sys::CpuMonitor::Times
-                            cpu_start{
-                                0,
-                                0
-                            };
+                            cpu_start;
 
                         if (
                             Core::Logger::
@@ -1189,6 +1366,14 @@ void interleaved_worker_loop(
                         }
 
                         if (
+                            !metrics &&
+                            evaluator->pid() <= 0
+                        ) {
+                            disable_evaluator();
+                        }
+
+                        if (
+                            evaluator &&
                             Core::Logger::
                                 is_debug()
                         ) {
@@ -1218,14 +1403,8 @@ void interleaved_worker_loop(
                                     );
 
                             long cpu_ms =
-                                (
-                                    cpu_end.user_ms -
-                                    cpu_start.user_ms
-                                ) +
-                                (
-                                    cpu_end.sys_ms -
-                                    cpu_start.sys_ms
-                                );
+                                cpu_end.total_ms() -
+                                cpu_start.total_ms();
 
                             Core::Logger::log(
                                 Core::Logger::
@@ -1246,7 +1425,7 @@ void interleaved_worker_loop(
                     } else if (
                         !evaluator->restart()
                     ) {
-                        evaluator.reset();
+                        disable_evaluator();
                     }
                 }
 
@@ -1266,6 +1445,7 @@ void interleaved_worker_loop(
                     state,
                     job.context
                 );
+
                 complete();
                 throw;
             } catch (...) {
@@ -1276,9 +1456,7 @@ void interleaved_worker_loop(
             continue;
         }
 
-        if (!task.game) {
-            continue;
-        }
+        if (!task.game) continue;
 
         std::vector<
             Core::Point
@@ -1347,6 +1525,7 @@ void interleaved_worker_loop(
                 );
             } else {
                 state.active_games.fetch_sub(1);
+
                 context
                     ->games_completed
                     .fetch_add(1);

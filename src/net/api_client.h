@@ -13,12 +13,16 @@
 
 class ApiTest;
 class ApiRecoveryTest;
+class RunDeclarationTest;
+class RefereeResultReasonTest;
 
 namespace Arena::Net {
 
 class CurlHandle {
 public:
-    CurlHandle() : handle_(curl_easy_init()) {}
+    CurlHandle() :
+        handle_(curl_easy_init())
+    {}
 
     ~CurlHandle() {
         if (handle_) {
@@ -51,6 +55,7 @@ public:
         std::string p2_name;
         std::string p2v;
         std::string moves;
+        std::string reason;
         std::string p1_cmd;
         std::string p2_cmd;
         int x = 0;
@@ -64,6 +69,7 @@ public:
         std::string run_id;
         std::string config_label;
         std::string status = "live";
+        bool analysis_enabled = false;
         int total_games = 0;
         int games_played = 0;
         int wins = 0;
@@ -114,8 +120,15 @@ public:
     void stop();
     void enqueue(Event event);
     void reset();
+    bool failed() const;
 
 private:
+    enum class DeliveryResult {
+        DELIVERED,
+        RETRYABLE,
+        REJECTED
+    };
+
     struct RecoveryRun {
         std::optional<Event> start;
         std::optional<Event> update;
@@ -132,12 +145,12 @@ private:
         const Event& event
     );
 
-    static bool is_move(
+    static bool is_terminal_update(
         const Event& event
     );
 
-    static bool is_terminal_update(
-        const Event& event
+    static bool valid_success_body(
+        const std::string& body
     );
 
     static std::optional<std::string>
@@ -164,12 +177,30 @@ private:
     std::vector<Event>
     recovery_snapshot_locked() const;
 
+    DeliveryResult recover_delivery(
+        CURL* curl
+    );
+
     bool recover(CURL* curl);
-    bool make_room_locked();
-    std::vector<Event> take_batch_locked();
-    void discard_locked(size_t additional);
+
+    std::vector<Event>
+    take_batch_locked();
+
+    void discard_locked(
+        size_t additional
+    );
+
+    void fail_delivery_locked(
+        size_t additional
+    );
+
     void report_dropped();
     void loop();
+
+    DeliveryResult deliver_batch(
+        CURL* curl,
+        const std::vector<Event>& batch
+    );
 
     bool send_batch(
         CURL* curl,
@@ -188,26 +219,26 @@ private:
     std::string key_;
     int debounce_;
     std::thread worker_;
-    std::mutex mtx_;
+    mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::deque<Event> queue_;
-    std::map<std::string, RecoveryRun>
-        recovery_runs_;
-    std::map<std::string, RecoveryGame>
-        recovery_games_;
-    std::optional<std::string>
-        server_generation_;
+    std::map<std::string, RecoveryRun> recovery_runs_;
+    std::map<std::string, RecoveryGame> recovery_games_;
+    std::optional<std::string> server_generation_;
     uint64_t generation_revision_ = 0;
     bool recovery_pending_ = false;
     bool started_ = false;
     bool accepting_ = true;
     bool stopping_ = false;
     bool disabled_ = false;
+    bool failed_ = false;
     size_t dropped_ = 0;
     bool dropped_reported_ = false;
 
     friend class ::ApiTest;
     friend class ::ApiRecoveryTest;
+    friend class ::RunDeclarationTest;
+    friend class ::RefereeResultReasonTest;
 };
 
 }

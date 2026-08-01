@@ -16,17 +16,40 @@ namespace Arena::App {
 
 struct WorkerState {
     std::deque<EvalJob>& eval_queue;
-    std::deque<std::shared_ptr<Game::Referee>>& game_queue;
-    std::deque<GameParams>& global_game_queue;
+    std::deque<
+        std::shared_ptr<
+            Game::Referee
+        >
+    >& game_queue;
+    std::deque<GameParams>&
+        global_game_queue;
     std::mutex& task_mtx;
     std::condition_variable& task_cv;
     std::atomic<int>& active_games;
+    std::atomic<int>&
+        evaluator_workers_initializing;
+    std::atomic<int>&
+        evaluator_workers_available;
     std::shared_ptr<Net::ApiManager> api;
-    std::vector<std::shared_ptr<RunContext>>& contexts;
+    std::vector<
+        std::shared_ptr<
+            RunContext
+        >
+    >& contexts;
     const Core::BatchConfig& bc;
     std::ofstream& ndjson_out;
     std::mutex& ndjson_mtx;
 };
+
+bool stop_on_api_failure(
+    WorkerState& state
+);
+
+bool can_claim_evaluation(
+    bool has_evaluator,
+    int workers_initializing,
+    int workers_available
+);
 
 double slot1_pair_score(
     double first_leg_black_score,

@@ -42,7 +42,12 @@ protected:
         double result = 1.0
     ) {
         testing::internal::CaptureStdout();
-        ref->finish(result);
+
+        ref->finish(
+            result,
+            Game::Referee::
+                ResultReason::LINE
+        );
 
         return testing::internal::
             GetCapturedStdout();
@@ -323,17 +328,27 @@ TEST_F(
 
     auto p1_eff =
         stats.get_p1_eff();
+
     auto p2_eff =
         stats.get_p2_eff();
 
     ASSERT_TRUE(
         p1_eff.has_value()
     );
+
     ASSERT_TRUE(
         p2_eff.has_value()
     );
-    EXPECT_DOUBLE_EQ(*p1_eff, 88.0);
-    EXPECT_DOUBLE_EQ(*p2_eff, 50.0);
+
+    EXPECT_DOUBLE_EQ(
+        *p1_eff,
+        88.0
+    );
+
+    EXPECT_DOUBLE_EQ(
+        *p2_eff,
+        50.0
+    );
 }
 
 TEST_F(
@@ -518,6 +533,7 @@ TEST_F(
     ref->apply_move(move);
 
     EXPECT_EQ(ref->moves_, 1);
+
     EXPECT_EQ(
         ref->hist_.size(),
         1
@@ -591,15 +607,21 @@ TEST_F(
             callback
         );
 
-    ref->finish(1.0);
+    ref->finish(
+        1.0,
+        Game::Referee::
+            ResultReason::LINE
+    );
 
     EXPECT_TRUE(called);
     EXPECT_EQ(callback_pair, 1);
     EXPECT_EQ(callback_leg, 0);
+
     EXPECT_DOUBLE_EQ(
         callback_result,
         1.0
     );
+
     EXPECT_GE(callback_wall, 0);
 }
 

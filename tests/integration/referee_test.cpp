@@ -936,7 +936,12 @@ TEST_F(
     );
 
     testing::internal::CaptureStdout();
-    ref->finish(1.0);
+
+    ref->finish(
+        1.0,
+        Game::Referee::
+            ResultReason::LINE
+    );
 
     std::string output =
         testing::internal::
