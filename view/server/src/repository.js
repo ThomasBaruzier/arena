@@ -34,14 +34,8 @@ const slot1Won = `
   CASE
     WHEN g.winner_color NOT IN (0, 3, 4)
       AND (
-        (
-          g.winner_color = 1
-          AND g.black_slot = 1
-        )
-        OR (
-          g.winner_color = 2
-          AND g.white_slot = 1
-        )
+        (g.winner_color = 1 AND g.black_slot = 1)
+        OR (g.winner_color = 2 AND g.white_slot = 1)
       )
     THEN 1
     ELSE 0
@@ -58,8 +52,7 @@ const pairAggregateSql = (where) => `
     MIN(${moveCount}) AS min_moves,
     SUM(
       CASE
-        WHEN g.winner_color = 0
-        THEN 1
+        WHEN g.winner_color = 0 THEN 1
         ELSE 0
       END
     ) AS live_count,
@@ -82,8 +75,7 @@ const pairAggregateSql = (where) => `
       )
     ) AS games_json
   FROM games g
-  JOIN runs r
-    ON r.id = g.run_id
+  JOIN runs r ON r.id = g.run_id
   WHERE ${where}
   GROUP BY g.group_id
 `;
@@ -331,26 +323,17 @@ const getGamesDynamic = ({ runId, limit, offset, cursor, cursorClause, orderBy }
   return database.prepare(sql).all(parameters);
 };
 
-export { init };
+export { init, getGamesDynamic };
 
 export const insertRun = (run) => statements.insertRun.run(run);
-
 export const insertRunSlot = (slot) => statements.insertRunSlot.run(slot);
-
 export const insertGame = (game) => statements.insertGame.run(game);
-
 export const getGameByExt = (id) => statements.getGameByExt.get(id);
-
 export const updateGameFull = (game) => statements.updateGameFull.run(game);
-
 export const getGameDetails = (id) => statements.getGameDetails.get(id);
-
 export const updateRun = (run) => statements.updateRun.run(run);
-
 export const getRunById = (id) => statements.getRunById.get(id);
-
 export const getAllRuns = () => statements.getAllRuns.all();
-
 export const getLatestGame = () => statements.getLatestGame.get();
 
 export const getRunsForMatchups = (limit, offset) =>
@@ -364,5 +347,3 @@ export const getPairSummary = (runId, groupId) =>
     runId,
     groupId
   });
-
-export { getGamesDynamic };

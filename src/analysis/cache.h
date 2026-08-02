@@ -36,9 +36,7 @@ public:
         const std::string& evaluator_cmd
     );
 
-    static std::optional<Stats::EvalMetrics> get(
-        const Key& key
-    );
+    static std::optional<Stats::EvalMetrics> get(const Key& key);
 
     static void set(
         const Key& key,

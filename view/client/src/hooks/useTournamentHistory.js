@@ -40,7 +40,13 @@ const readPairs = async (response) => {
   return normalizePairs(await response.json());
 };
 
-export function useTournamentHistory({ runId, phase, preparationToken, subscribe, onPrepared }) {
+export function useTournamentHistory({
+  runId,
+  phase,
+  preparationToken,
+  subscribe,
+  onPrepared
+}) {
   const [pairsById, dispatch] = useReducer(tournamentHistoryReducer, new Map());
   const [sort, setSort] = useState(DEFAULT_HISTORY_SORT);
   const [pendingSort, setPendingSort] = useState(null);
@@ -55,17 +61,17 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
   const sortRef = useRef(sort);
   const capacityRef = useRef(capacity);
   const cursorRef = useRef(cursor);
+  const phaseRef = useRef(phase);
+  const runRef = useRef(runId);
+  const onPreparedRef = useRef(onPrepared);
+  const preparedRequestRef = useRef(null);
+  const preparedNoticeRef = useRef(null);
+  const bufferRef = useRef([]);
   const requestRef = useRef({
     id: 0,
     controller: null,
     preparationToken: null
   });
-  const bufferRef = useRef([]);
-  const phaseRef = useRef(phase);
-  const runRef = useRef(runId);
-  const preparedRequestRef = useRef(null);
-  const preparedNoticeRef = useRef(null);
-  const onPreparedRef = useRef(onPrepared);
 
   pairsRef.current = pairsById;
   sortRef.current = sort;
@@ -108,8 +114,8 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
         controller,
         preparationToken: prepareToken
       };
-
       bufferRef.current = [];
+
       setFetching(true);
       setPaginationError(false);
 
@@ -125,7 +131,6 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
         const response = await fetch(requestUrl(runId, requestedSort, nextCursor), {
           signal: controller.signal
         });
-
         const page = await readPairs(response);
 
         if (controller.signal.aborted || requestRef.current.id !== requestId) {
@@ -133,8 +138,9 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
         }
 
         const buffered = bufferRef.current;
-        bufferRef.current = [];
         const nextCapacity = append ? capacityRef.current + PAGE_SIZE : PAGE_SIZE;
+
+        bufferRef.current = [];
 
         dispatch({
           type: append ? 'APPEND' : 'SET',
@@ -171,24 +177,22 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
         bufferRef.current = [];
 
         if (buffered.length > 0) {
-          const nextCapacity = capacityRef.current > 0 ? capacityRef.current : PAGE_SIZE;
-
           dispatch({
             type: 'UPSERT_MANY',
             pairs: buffered
           });
 
           if (capacityRef.current === 0) {
-            capacityRef.current = nextCapacity;
-            setCapacity(nextCapacity);
+            capacityRef.current = PAGE_SIZE;
+            setCapacity(PAGE_SIZE);
           }
         }
 
-        const hasUsableRows = pairsRef.current.size > 0 || buffered.length > 0;
+        const hasRows = pairsRef.current.size > 0 || buffered.length > 0;
 
         if (append) {
           setPaginationError(true);
-        } else if (blockingFailure || !hasUsableRows) {
+        } else if (blockingFailure || !hasRows) {
           setError(true);
         }
 
@@ -216,25 +220,21 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
 
   useEffect(() => {
     requestRef.current.controller?.abort();
-
     requestRef.current = {
       id: requestRef.current.id + 1,
       controller: null,
       preparationToken: null
     };
 
-    bufferRef.current = [];
-    preparedRequestRef.current = null;
-    preparedNoticeRef.current = null;
     pairsRef.current = new Map();
     sortRef.current = DEFAULT_HISTORY_SORT;
     capacityRef.current = 0;
     cursorRef.current = null;
+    preparedRequestRef.current = null;
+    preparedNoticeRef.current = null;
+    bufferRef.current = [];
 
-    dispatch({
-      type: 'CLEAR'
-    });
-
+    dispatch({ type: 'CLEAR' });
     setSort(DEFAULT_HISTORY_SORT);
     setPendingSort(null);
     setCursor(null);
@@ -287,10 +287,7 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
 
         if (requestRef.current.controller) {
           bufferRef.current.push(pair);
-          return;
-        }
-
-        if (phaseRef.current !== 'closed' && capacityRef.current > 0) {
+        } else if (phaseRef.current !== 'closed' && capacityRef.current > 0) {
           dispatch({
             type: 'UPSERT',
             pair
@@ -309,12 +306,12 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
 
   const sortBy = useCallback(
     (column) => {
-      if (requestRef.current.controller) return;
-
-      const requestedSort = nextHistorySort(sortRef.current, column);
+      if (requestRef.current.controller) {
+        return;
+      }
 
       requestPage({
-        requestedSort,
+        requestedSort: nextHistorySort(sortRef.current, column),
         commitSort: true
       });
     },
@@ -332,7 +329,6 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
         nextCursor: cursorRef.current,
         append: true
       });
-
       return;
     }
 
@@ -345,13 +341,13 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
   }, [serverHasMore, pairsById.size, error, requestPage]);
 
   const retry = useCallback(() => {
-    if (requestRef.current.controller) return;
-
-    requestPage({
-      requestedSort: sortRef.current,
-      blockingFailure: true,
-      preserveError: true
-    });
+    if (!requestRef.current.controller) {
+      requestPage({
+        requestedSort: sortRef.current,
+        blockingFailure: true,
+        preserveError: true
+      });
+    }
   }, [requestPage]);
 
   const retryPage = useCallback(() => {
@@ -371,8 +367,6 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
     [pairsById, sort, capacity]
   );
 
-  const hasMore = serverHasMore || pairsById.size > capacity;
-
   return {
     pairs,
     sort,
@@ -380,7 +374,7 @@ export function useTournamentHistory({ runId, phase, preparationToken, subscribe
     fetching,
     error,
     paginationError,
-    hasMore,
+    hasMore: serverHasMore || pairsById.size > capacity,
     sortBy,
     loadMore,
     retry,

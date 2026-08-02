@@ -1,7 +1,9 @@
 export const DEFAULT_BOARD_SIZE = 20;
 
 export const parseMoves = (value) => {
-  if (!value) return [];
+  if (!value) {
+    return [];
+  }
 
   return value
     .split(';')
@@ -27,7 +29,9 @@ export const getWinningLine = (moves, winnerColor, boardSize = DEFAULT_BOARD_SIZ
 
   for (let y = 0; y < boardSize; y += 1) {
     for (let x = 0; x < boardSize; x += 1) {
-      if (board[y][x] !== winnerColor) continue;
+      if (board[y][x] !== winnerColor) {
+        continue;
+      }
 
       for (const [dx, dy] of [
         [1, 0],
@@ -41,19 +45,33 @@ export const getWinningLine = (moves, winnerColor, boardSize = DEFAULT_BOARD_SIZ
           const previousX = x - dx * distance;
           const previousY = y - dy * distance;
 
-          if (board[previousY]?.[previousX] !== winnerColor) break;
-          line.unshift({ x: previousX, y: previousY });
+          if (board[previousY]?.[previousX] !== winnerColor) {
+            break;
+          }
+
+          line.unshift({
+            x: previousX,
+            y: previousY
+          });
         }
 
         for (let distance = 1; ; distance += 1) {
           const nextX = x + dx * distance;
           const nextY = y + dy * distance;
 
-          if (board[nextY]?.[nextX] !== winnerColor) break;
-          line.push({ x: nextX, y: nextY });
+          if (board[nextY]?.[nextX] !== winnerColor) {
+            break;
+          }
+
+          line.push({
+            x: nextX,
+            y: nextY
+          });
         }
 
-        if (line.length >= 5) return line;
+        if (line.length >= 5) {
+          return line;
+        }
       }
     }
   }

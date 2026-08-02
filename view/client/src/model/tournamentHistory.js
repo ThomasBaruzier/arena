@@ -5,9 +5,11 @@ export const DEFAULT_HISTORY_SORT = Object.freeze({
 
 const SORT_COLUMNS = new Set(['id', 'moves', 'duration', 'result']);
 
-const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const isInteger = (value, minimum = 0) => Number.isSafeInteger(value) && value >= minimum;
+const isInteger = (value, minimum = 0) =>
+  Number.isSafeInteger(value) && value >= minimum;
 
 const validSlot = (value) => value === 1 || value === 2;
 const terminal = (winner) => winner !== 0;
@@ -72,9 +74,9 @@ const normalizeGame = (game) => {
 
 const summarizeGames = (groupId, games) => {
   const ordered = [...games].sort(
-    (first, second) => gameSideOrder(first) - gameSideOrder(second) || first.id - second.id
+    (first, second) =>
+      gameSideOrder(first) - gameSideOrder(second) || first.id - second.id
   );
-
   const moveCounts = ordered.map((game) => game.move_count);
 
   return {
@@ -115,7 +117,10 @@ export const normalizePair = (pair) => {
 
   const games = pair.games.map(normalizeGame);
 
-  if (pair.pair_size !== games.length || games.some((game) => game.group_id !== pair.group_id)) {
+  if (
+    pair.pair_size !== games.length ||
+    games.some((game) => game.group_id !== pair.group_id)
+  ) {
     throw new Error('Invalid tournament pair membership');
   }
 
@@ -141,29 +146,38 @@ const sameGameIdentity = (current, incoming) =>
   current.opening_len === incoming.opening_len;
 
 const mergeGame = (current, incoming) => {
-  if (!current) return incoming;
-  if (!sameGameIdentity(current, incoming)) return current;
+  if (!current) {
+    return incoming;
+  }
 
-  const winner = terminal(current.winner_color) ? current.winner_color : incoming.winner_color;
+  if (!sameGameIdentity(current, incoming)) {
+    return current;
+  }
 
   return {
     ...current,
     timestamp: latestTimestamp(current.timestamp, incoming.timestamp),
-    winner_color: winner,
+    winner_color: terminal(current.winner_color)
+      ? current.winner_color
+      : incoming.winner_color,
     move_count: Math.max(current.move_count, incoming.move_count),
     duration: Math.max(current.duration, incoming.duration)
   };
 };
 
 export const mergePair = (current, incoming) => {
-  if (!current) return incoming;
-  if (current.group_id !== incoming.group_id) return current;
+  if (!current) {
+    return incoming;
+  }
+
+  if (current.group_id !== incoming.group_id) {
+    return current;
+  }
 
   const games = new Map(current.games.map((game) => [String(game.id), game]));
 
   for (const game of incoming.games) {
     const key = String(game.id);
-
     games.set(key, mergeGame(games.get(key), game));
   }
 
@@ -189,14 +203,15 @@ export const nextHistorySort = (current, column) => {
       };
 };
 
-const compareNumber = (first, second, ascending) => (ascending ? first - second : second - first);
+const compareNumber = (first, second, ascending) =>
+  ascending ? first - second : second - first;
 
 export const comparePairs = (first, second, sort) => {
   if (!validHistorySort(sort)) {
     throw new Error('Invalid history sort');
   }
 
-  let result = 0;
+  let result;
 
   if (sort.col === 'id') {
     result = compareNumber(first.max_id, second.max_id, sort.asc);
@@ -220,18 +235,16 @@ export const comparePairs = (first, second, sort) => {
     result = second.max_id - first.max_id;
   }
 
-  if (result === 0) {
-    result = first.group_id.localeCompare(second.group_id);
-  }
-
-  return result;
+  return result || first.group_id.localeCompare(second.group_id);
 };
 
 export const sortedHistoryPairs = (pairs, sort) =>
   [...pairs.values()].sort((first, second) => comparePairs(first, second, sort));
 
 export const historyCursor = (pair, sort) => {
-  if (!pair) return null;
+  if (!pair) {
+    return null;
+  }
 
   const cursor = {
     id: pair.max_id
@@ -249,7 +262,7 @@ export const historyCursor = (pair, sort) => {
   return JSON.stringify(cursor);
 };
 
-const installPairs = (current, pairs, replace) => {
+const installPairs = (current, pairs, replace = false) => {
   const next = replace ? new Map() : new Map(current);
 
   for (const pair of pairs) {
@@ -260,7 +273,7 @@ const installPairs = (current, pairs, replace) => {
 };
 
 const installSnapshots = (current, pairs, buffered, replace) =>
-  installPairs(installPairs(current, pairs, replace), buffered || [], false);
+  installPairs(installPairs(current, pairs, replace), buffered || []);
 
 export const tournamentHistoryReducer = (state, action) => {
   if (action.type === 'CLEAR') {
@@ -276,11 +289,11 @@ export const tournamentHistoryReducer = (state, action) => {
   }
 
   if (action.type === 'UPSERT') {
-    return installPairs(state, [action.pair], false);
+    return installPairs(state, [action.pair]);
   }
 
   if (action.type === 'UPSERT_MANY') {
-    return installPairs(state, action.pairs, false);
+    return installPairs(state, action.pairs);
   }
 
   return state;

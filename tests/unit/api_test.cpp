@@ -589,7 +589,7 @@ TEST_F(
 
 TEST_F(
     ApiTest,
-    PreservesSuccessfulBatchOrder
+    PreservesSuccessfulDeliveryOrder
 ) {
     api->start();
 
@@ -620,17 +620,20 @@ TEST_F(
         calls.empty()
     );
 
-    const auto& body =
-        calls.front().post_data;
+    std::string delivered;
+
+    for (const auto& call : calls) {
+        delivered += call.post_data;
+    }
 
     size_t first =
-        body.find("\"x\":0");
+        delivered.find("\"x\":0");
 
     size_t second =
-        body.find("\"x\":1");
+        delivered.find("\"x\":1");
 
     size_t third =
-        body.find("\"x\":2");
+        delivered.find("\"x\":2");
 
     ASSERT_NE(
         first,

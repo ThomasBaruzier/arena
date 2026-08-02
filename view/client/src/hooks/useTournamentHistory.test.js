@@ -107,8 +107,9 @@ afterEach(() => {
 
 describe('useTournamentHistory', () => {
   it('prepares a canonical first page', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response([pair(1)]));
-
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(response([pair(1)]));
     const { result, onPrepared } = setup();
 
     await waitFor(() => expect(onPrepared).toHaveBeenCalledTimes(1));
@@ -123,9 +124,7 @@ describe('useTournamentHistory', () => {
 
     vi.spyOn(globalThis, 'fetch').mockReturnValue(request.promise);
 
-    const { result, onPrepared } = setup({
-      source
-    });
+    const { result, onPrepared } = setup({ source });
 
     act(() => {
       source.emit({
@@ -171,9 +170,7 @@ describe('useTournamentHistory', () => {
 
     vi.spyOn(globalThis, 'fetch').mockReturnValue(request.promise);
 
-    const { result, onPrepared } = setup({
-      source
-    });
+    const { result, onPrepared } = setup({ source });
 
     act(() => {
       source.emit({
@@ -184,15 +181,7 @@ describe('useTournamentHistory', () => {
     });
 
     await act(async () => {
-      request.resolve(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      );
-
+      request.resolve(response({ error: 'failed' }, false));
       await request.promise;
     });
 
@@ -202,20 +191,12 @@ describe('useTournamentHistory', () => {
     expect(result.current.error).toBe(true);
   });
 
-  it('opens Retry when a fresh preparation fails over cached rows', async () => {
+  it('opens Retry when fresh preparation fails over cached rows', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(response([pair(1)]))
-      .mockResolvedValueOnce(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      )
+      .mockResolvedValueOnce(response({ error: 'failed' }, false))
       .mockResolvedValueOnce(response([pair(2)]));
-
     const { result, rerender, onPrepared } = setup();
 
     await waitFor(() => expect(onPrepared).toHaveBeenCalledTimes(1));
@@ -225,12 +206,10 @@ describe('useTournamentHistory', () => {
       currentPhase: 'open',
       currentToken: null
     });
-
     rerender({
       currentPhase: 'closed',
       currentToken: null
     });
-
     rerender({
       currentPhase: 'preparing',
       currentToken: 2
@@ -256,15 +235,7 @@ describe('useTournamentHistory', () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(response([pair(1)]))
-      .mockResolvedValue(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      );
-
+      .mockResolvedValue(response({ error: 'failed' }, false));
     const { result, rerender, onPrepared } = setup();
 
     await waitFor(() => expect(onPrepared).toHaveBeenCalledTimes(1));
@@ -292,15 +263,7 @@ describe('useTournamentHistory', () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(response([pair(2), pair(1)]))
-      .mockResolvedValueOnce(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      );
-
+      .mockResolvedValueOnce(response({ error: 'failed' }, false));
     const { result, rerender } = setup();
 
     await waitFor(() => expect(result.current.pairs).toHaveLength(2));
@@ -315,7 +278,6 @@ describe('useTournamentHistory', () => {
     });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-
     await waitFor(() => expect(result.current.fetching).toBe(false));
 
     expect(result.current.pairs).toHaveLength(2);
@@ -325,26 +287,12 @@ describe('useTournamentHistory', () => {
   });
 
   it('keeps pagination available after failure and retries it', async () => {
-    const firstPage = Array.from(
-      {
-        length: 50
-      },
-      (_, index) => pair(100 - index)
-    );
-
+    const firstPage = Array.from({ length: 50 }, (_, index) => pair(100 - index));
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(response(firstPage))
-      .mockResolvedValueOnce(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      )
+      .mockResolvedValueOnce(response({ error: 'failed' }, false))
       .mockResolvedValueOnce(response([pair(50)]));
-
     const { result, rerender } = setup();
 
     await waitFor(() => expect(result.current.hasMore).toBe(true));
@@ -368,7 +316,6 @@ describe('useTournamentHistory', () => {
     });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-
     await waitFor(() => expect(result.current.fetching).toBe(false));
 
     expect(result.current.paginationError).toBe(false);
@@ -378,18 +325,11 @@ describe('useTournamentHistory', () => {
 
   it('bounds streamed pairs to loaded capacity', async () => {
     const source = stream();
-    const firstPage = Array.from(
-      {
-        length: 50
-      },
-      (_, index) => pair(100 - index)
-    );
+    const firstPage = Array.from({ length: 50 }, (_, index) => pair(100 - index));
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(firstPage));
 
-    const { result, rerender } = setup({
-      source
-    });
+    const { result, rerender } = setup({ source });
 
     await waitFor(() => expect(result.current.pairs).toHaveLength(50));
 
@@ -414,12 +354,7 @@ describe('useTournamentHistory', () => {
 
   it('shows initial Retry without usable rows', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      response(
-        {
-          error: 'failed'
-        },
-        false
-      )
+      response({ error: 'failed' }, false)
     );
 
     const { result, onPrepared } = setup();

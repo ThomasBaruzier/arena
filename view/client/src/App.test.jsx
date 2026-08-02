@@ -11,7 +11,6 @@ class FakeEventSource {
     this.onmessage = null;
     this.onerror = null;
     this.closed = false;
-
     FakeEventSource.instances.push(this);
   }
 
@@ -26,12 +25,9 @@ class FakeEventSource {
   }
 }
 
-class FakeWorker {
-  terminate() {}
-}
-
 class FakeIntersectionObserver {
   observe() {}
+
   disconnect() {}
 }
 
@@ -65,27 +61,15 @@ const source = () => FakeEventSource.instances.at(-1);
 
 beforeEach(() => {
   FakeEventSource.instances = [];
-
   window.history.replaceState(null, '', '/');
 
   vi.stubGlobal('EventSource', FakeEventSource);
-
-  vi.stubGlobal('Worker', FakeWorker);
-
   vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
-
   vi.stubGlobal(
     'fetch',
     vi.fn((url) => {
       if (url === '/api/latest-game') {
-        return Promise.resolve(
-          response(
-            {
-              id: 1
-            },
-            'generation-1'
-          )
-        );
+        return Promise.resolve(response({ id: 1 }, 'generation-1'));
       }
 
       if (url === '/api/game/1') {
@@ -111,7 +95,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('App recovery', () => {
+describe('App recovery and playback', () => {
   it('selects the first recovered live game with a clean URL', async () => {
     render(<App />);
 
@@ -158,7 +142,6 @@ describe('App recovery', () => {
     await waitFor(() => expect(screen.getByTestId('stone-5-5')).toBeInTheDocument());
 
     expect(window.location.pathname).toBe('/2');
-
     expect(window.location.search).toBe('');
   });
 
@@ -196,6 +179,45 @@ describe('App recovery', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Move 2/2')).toBeInTheDocument());
+  });
+
+  it('accepts rapid opposite playback commands without waiting for animation', async () => {
+    globalThis.fetch.mockImplementation((url) => {
+      if (url === '/api/latest-game') {
+        return Promise.resolve(response({ id: 1 }, 'generation-1'));
+      }
+
+      if (url === '/api/game/1') {
+        return Promise.resolve(response(game(1, '1,1,1;2,2,2;3,3,1')));
+      }
+
+      if (String(url).startsWith('/api/matchups') || url === '/api/runs') {
+        return Promise.resolve(response([]));
+      }
+
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('Move 3/3')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Previous move'));
+    fireEvent.click(screen.getByLabelText('Previous move'));
+
+    expect(screen.getByText('Move 1/3')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Next move'));
+
+    expect(screen.getByText('Move 2/3')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Replay from start'));
+
+    expect(screen.getByText('Move 0/3')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Next move'));
+
+    expect(screen.getByText('Move 1/3')).toBeInTheDocument();
   });
 
   it('does not move active playback when a reconnect snapshot arrives', async () => {
@@ -238,7 +260,6 @@ describe('App recovery', () => {
     ).length;
 
     expect(reconnectFetches).toBe(initialFetches + 1);
-
     expect(screen.getByText('Move 0/1')).toBeInTheDocument();
   });
 });

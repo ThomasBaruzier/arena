@@ -104,17 +104,10 @@ const createSchema = (db) => {
       FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX idx_games_timestamp
-      ON games(timestamp);
-
-    CREATE INDEX idx_games_group
-      ON games(group_id);
-
-    CREATE INDEX idx_games_run
-      ON games(run_id);
-
-    CREATE INDEX idx_runs_updated
-      ON runs(updated_at);
+    CREATE INDEX idx_games_timestamp ON games(timestamp);
+    CREATE INDEX idx_games_group ON games(group_id);
+    CREATE INDEX idx_games_run ON games(run_id);
+    CREATE INDEX idx_runs_updated ON runs(updated_at);
 
     PRAGMA user_version = ${SCHEMA_VERSION};
   `);
@@ -131,7 +124,7 @@ const loadGeneration = (db) => {
     )
     .get();
 
-  if (!row || typeof row.generation !== 'string' || row.generation.length === 0) {
+  if (!row || typeof row.generation !== 'string' || !row.generation) {
     throw new Error('Invalid viewer database metadata: wipe the viewer database');
   }
 
@@ -200,7 +193,6 @@ export const reset = () => {
   }
 
   const next = randomUUID();
-
   const apply = database.transaction(() => {
     database.exec(`
       DELETE FROM games;
@@ -229,7 +221,6 @@ export const reset = () => {
 };
 
 export const prepare = (sql) => database.prepare(sql);
-
 export const transaction = (fn) => database.transaction(fn);
 
 export const close = () => {

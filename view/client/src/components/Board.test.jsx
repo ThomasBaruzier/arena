@@ -1,30 +1,18 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Board from './Board';
 
-const move = (x, y, c) => ({
-  x,
-  y,
-  c
-});
+const move = (x, y, c) => ({ x, y, c });
 
-const dispatchAnimation = (element, type, animationName) => {
-  const event = new Event(type, {
-    bubbles: true
-  });
+const finishTransition = (element) => {
+  const event = new Event('transitionend', { bubbles: true });
 
-  Object.defineProperty(event, 'animationName', {
-    value: animationName
+  Object.defineProperty(event, 'propertyName', {
+    value: 'opacity'
   });
 
   fireEvent(element, event);
 };
-
-const finishAnimation = (element, animationName) =>
-  dispatchAnimation(element, 'animationend', animationName);
-
-const cancelAnimation = (element, animationName) =>
-  dispatchAnimation(element, 'animationcancel', animationName);
 
 const renderBoard = (props = {}) =>
   render(
@@ -33,36 +21,46 @@ const renderBoard = (props = {}) =>
       parsedMoves={[]}
       moveIndex={0}
       winnerColor={0}
-      transition={null}
+      motion={null}
       boardSize={20}
-      onTransitionChange={vi.fn()}
-      onTransitionComplete={vi.fn()}
       {...props}
     />
   );
 
+const markerAt = (x, y) =>
+  screen
+    .queryAllByTestId('last-move-marker')
+    .find(
+      (marker) => marker.style.left === `${x * 5}%` && marker.style.top === `${y * 5}%`
+    );
+
 describe('Board', () => {
-  it('renders an initial position without motion', () => {
+  beforeEach(() => {
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders a loaded position without motion', () => {
     renderBoard({
       parsedMoves: [move(1, 1, 1), move(2, 2, 2)],
       moveIndex: 2
     });
 
     expect(screen.getByTestId('stone-1-1')).toHaveClass('stable');
-
-    expect(screen.getByTestId('last-move-marker')).toHaveClass('on-white', 'stable');
+    expect(screen.getByTestId('stone-2-2')).toHaveClass('stable');
+    expect(screen.getByTestId('last-move-marker')).toHaveClass('stable', 'on-white');
   });
 
-  it('waits for every fast append before changing marker', () => {
+  it('starts the marker with the final appended stone', () => {
     const first = [move(1, 1, 1)];
     const next = [...first, move(2, 2, 2), move(3, 3, 1)];
-
     const { rerender } = renderBoard({
       parsedMoves: first,
       moveIndex: 1
     });
-
-    const oldMarker = screen.getByTestId('last-move-marker');
 
     rerender(
       <Board
@@ -70,29 +68,31 @@ describe('Board', () => {
         parsedMoves={next}
         moveIndex={3}
         winnerColor={0}
-        transition={null}
+        motion={{ token: 1, kind: 'next' }}
         boardSize={20}
       />
     );
 
-    finishAnimation(screen.getByTestId('stone-3-3'), 'arena-stone-enter');
-    finishAnimation(oldMarker, 'arena-marker-exit');
+    const firstStone = screen.getByTestId('stone-2-2');
+    const finalStone = screen.getByTestId('stone-3-3');
+    const oldMarker = markerAt(1, 1);
+    const newMarker = markerAt(3, 3);
 
-    expect(screen.queryByTestId('last-move-marker')).not.toBeInTheDocument();
-
-    finishAnimation(screen.getByTestId('stone-2-2'), 'arena-stone-enter');
-
-    expect(screen.getByTestId('last-move-marker')).toHaveClass('on-black', 'entering');
+    expect(firstStone).toHaveClass('entering');
+    expect(finalStone).toHaveClass('entering');
+    expect(finalStone.style.getPropertyValue('--stone-delay')).toBe('40ms');
+    expect(finalStone.style.getPropertyValue('--stone-duration')).toBe('150ms');
+    expect(oldMarker).toHaveClass('exiting');
+    expect(newMarker).toHaveClass('entering', 'on-black');
+    expect(newMarker.style.getPropertyValue('--marker-delay')).toBe('40ms');
+    expect(newMarker.style.getPropertyValue('--marker-duration')).toBe('150ms');
   });
 
-  it('marks the previous move after rewind completes', () => {
+  it('crossfades markers while stepping backward', () => {
     const moves = [move(1, 1, 1), move(2, 2, 2)];
-    const onTransitionComplete = vi.fn();
-
     const { rerender } = renderBoard({
       parsedMoves: moves,
-      moveIndex: 2,
-      onTransitionComplete
+      moveIndex: 2
     });
 
     rerender(
@@ -101,82 +101,28 @@ describe('Board', () => {
         parsedMoves={moves}
         moveIndex={1}
         winnerColor={0}
-        transition={{
-          token: 1,
-          kind: 'previous'
-        }}
+        motion={{ token: 1, kind: 'previous' }}
         boardSize={20}
-        onTransitionComplete={onTransitionComplete}
       />
     );
 
-    const exitingStone = screen.getByTestId('stone-2-2');
-    const exitingMarker = screen.getByTestId('last-move-marker');
+    const departingStone = screen.getByTestId('stone-2-2');
+    const departingMarker = markerAt(2, 2);
+    const previousMarker = markerAt(1, 1);
 
-    finishAnimation(exitingMarker, 'arena-marker-exit');
-    finishAnimation(exitingStone, 'arena-stone-exit');
-
-    const marker = screen.getByTestId('last-move-marker');
-
-    expect(marker).toHaveClass('on-black', 'entering');
-
-    finishAnimation(marker, 'arena-marker-enter');
-
-    expect(onTransitionComplete).toHaveBeenCalledWith(1);
+    expect(departingStone).toHaveClass('exiting');
+    expect(departingMarker).toHaveClass('exiting');
+    expect(previousMarker).toHaveClass('entering', 'on-black');
+    expect(departingStone.style.getPropertyValue('--stone-duration')).toBe('100ms');
+    expect(departingMarker.style.getPropertyValue('--marker-duration')).toBe('100ms');
+    expect(previousMarker.style.getPropertyValue('--marker-duration')).toBe('100ms');
   });
 
-  it('ignores stale cancellation and completes the active phase', async () => {
-    const moves = [move(1, 1, 1), move(2, 2, 2)];
-    const onTransitionComplete = vi.fn();
-
-    const { rerender } = renderBoard({
-      parsedMoves: moves,
-      moveIndex: 2,
-      onTransitionComplete
-    });
-
-    rerender(
-      <Board
-        gameId={1}
-        parsedMoves={moves}
-        moveIndex={1}
-        winnerColor={0}
-        transition={{
-          token: 1,
-          kind: 'previous'
-        }}
-        boardSize={20}
-        onTransitionComplete={onTransitionComplete}
-      />
-    );
-
-    const exitingMarker = screen.getByTestId('last-move-marker');
-    const exitingStone = screen.getByTestId('stone-2-2');
-
-    cancelAnimation(exitingMarker, 'arena-marker-enter');
-    cancelAnimation(exitingStone, 'arena-stone-enter');
-
-    expect(exitingMarker).toHaveClass('exiting');
-    expect(exitingStone).toHaveClass('exiting');
-
-    cancelAnimation(exitingMarker, 'arena-marker-exit');
-    cancelAnimation(exitingStone, 'arena-stone-exit');
-
-    const marker = screen.getByTestId('last-move-marker');
-
-    cancelAnimation(marker, 'arena-marker-enter');
-
-    await waitFor(() => expect(onTransitionComplete).toHaveBeenCalledWith(1));
-  });
-
-  it('waits for every Replay stone', async () => {
+  it('clears every visible stone together for Replay', () => {
     const moves = [move(1, 1, 1), move(2, 2, 2), move(3, 3, 1)];
-    const onTransitionComplete = vi.fn();
-
     const { rerender } = renderBoard({
       parsedMoves: moves,
-      moveIndex: 3,
-      onTransitionComplete
+      moveIndex: 3
     });
 
     rerender(
@@ -185,37 +131,65 @@ describe('Board', () => {
         parsedMoves={moves}
         moveIndex={0}
         winnerColor={0}
-        transition={{
-          token: 1,
-          kind: 'replay'
-        }}
+        motion={{ token: 1, kind: 'replay' }}
         boardSize={20}
-        onTransitionComplete={onTransitionComplete}
       />
     );
 
     const stones = screen.getAllByTestId(/^stone-/);
 
-    finishAnimation(stones[0], 'arena-stone-exit');
+    expect(stones).toHaveLength(3);
 
-    expect(screen.getAllByTestId(/^stone-/)).toHaveLength(3);
-
-    for (const stone of stones.slice(1)) {
-      finishAnimation(stone, 'arena-stone-exit');
+    for (const stone of stones) {
+      expect(stone).toHaveClass('exiting');
+      expect(stone.style.getPropertyValue('--stone-delay')).toBe('0ms');
+      expect(stone.style.getPropertyValue('--stone-duration')).toBe('100ms');
     }
 
-    const marker = screen.queryByTestId('last-move-marker');
-
-    if (marker) {
-      finishAnimation(marker, 'arena-marker-exit');
-    }
-
-    expect(screen.queryAllByTestId(/^stone-/)).toHaveLength(0);
-
-    await waitFor(() => expect(onTransitionComplete).toHaveBeenCalledWith(1));
+    expect(screen.getByTestId('last-move-marker')).toHaveClass('exiting');
   });
 
-  it('retracts the winning line on rewind', () => {
+  it('revives a desired stone before Replay completes', () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2)];
+    const { rerender } = renderBoard({
+      parsedMoves: moves,
+      moveIndex: 2
+    });
+
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={0}
+        winnerColor={0}
+        motion={{ token: 1, kind: 'replay' }}
+        boardSize={20}
+      />
+    );
+
+    const first = screen.getByTestId('stone-1-1');
+
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={1}
+        winnerColor={0}
+        motion={{ token: 2, kind: 'next' }}
+        boardSize={20}
+      />
+    );
+
+    expect(screen.getByTestId('stone-1-1')).toBe(first);
+    expect(first).toHaveClass('entering');
+    expect(markerAt(1, 1)).toHaveClass('entering');
+
+    finishTransition(first);
+
+    expect(screen.getByTestId('stone-1-1')).toHaveClass('stable');
+  });
+
+  it('retracts and restores the same winning line', () => {
     const moves = [
       move(0, 0, 1),
       move(0, 1, 2),
@@ -227,7 +201,6 @@ describe('Board', () => {
       move(3, 1, 2),
       move(4, 0, 1)
     ];
-
     const { rerender } = renderBoard({
       parsedMoves: moves,
       moveIndex: 9,
@@ -240,14 +213,45 @@ describe('Board', () => {
         parsedMoves={moves}
         moveIndex={8}
         winnerColor={1}
-        transition={{
-          token: 1,
-          kind: 'previous'
-        }}
+        motion={{ token: 1, kind: 'previous' }}
         boardSize={20}
       />
     );
 
-    expect(screen.getByTestId('win-line')).toHaveClass('exiting');
+    const line = screen.getByTestId('win-line');
+
+    expect(line).toHaveClass('exiting');
+
+    rerender(
+      <Board
+        gameId={1}
+        parsedMoves={moves}
+        moveIndex={9}
+        winnerColor={1}
+        motion={{ token: 2, kind: 'next' }}
+        boardSize={20}
+      />
+    );
+
+    expect(screen.getByTestId('win-line')).toBe(line);
+    expect(line).toHaveClass('entering');
+
+    fireEvent.transitionEnd(line, {
+      propertyName: 'opacity'
+    });
+
+    expect(screen.getByTestId('win-line')).toHaveClass('stable');
+  });
+
+  it('keeps the marker independent from the stone', () => {
+    renderBoard({
+      parsedMoves: [move(1, 1, 1)],
+      moveIndex: 1
+    });
+
+    const stone = screen.getByTestId('stone-1-1');
+    const marker = screen.getByTestId('last-move-marker');
+
+    expect(stone.contains(marker)).toBe(false);
   });
 });

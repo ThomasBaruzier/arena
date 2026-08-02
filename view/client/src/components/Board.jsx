@@ -1,22 +1,19 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
-import { DEFAULT_BOARD_SIZE, getWinningLine } from '../utils';
 import { useVisualBoard } from '../hooks/useVisualBoard';
+import { DEFAULT_BOARD_SIZE, getWinningLine } from '../utils';
 
-const animationStatus = (name) => {
-  if (name.endsWith('-enter')) return 'entering';
-  if (name.endsWith('-exit')) return 'exiting';
-  return null;
-};
+const transitionStyle = (layer, now, name) => ({
+  [`--${name}-delay`]: `${Math.max(0, Math.round(layer.startAt - now))}ms`,
+  [`--${name}-duration`]: `${layer.duration}ms`
+});
 
 const Board = memo(function Board({
   gameId,
   parsedMoves,
   moveIndex,
   winnerColor,
-  transition,
-  boardSize = DEFAULT_BOARD_SIZE,
-  onTransitionChange,
-  onTransitionComplete
+  motion,
+  boardSize = DEFAULT_BOARD_SIZE
 }) {
   const moves = useMemo(
     () => parsedMoves.slice(0, Math.max(0, Math.min(moveIndex, parsedMoves.length))),
@@ -24,7 +21,10 @@ const Board = memo(function Board({
   );
 
   const winningLine = useMemo(
-    () => (moveIndex >= parsedMoves.length ? getWinningLine(moves, winnerColor, boardSize) : []),
+    () =>
+      moveIndex >= parsedMoves.length
+        ? getWinningLine(moves, winnerColor, boardSize)
+        : [],
     [moveIndex, parsedMoves.length, moves, winnerColor, boardSize]
   );
 
@@ -32,48 +32,47 @@ const Board = memo(function Board({
     gameId,
     moves,
     winningLine,
-    transition,
-    onTransitionComplete
+    motion
   });
-
   const { finishStone, finishMarker, finishLine } = visual;
   const gridRef = useRef(null);
-
-  useEffect(() => {
-    onTransitionChange?.(visual.transitioning);
-  }, [visual.transitioning, onTransitionChange]);
+  const renderTime = performance.now();
 
   useEffect(() => {
     const grid = gridRef.current;
 
-    if (!grid) return undefined;
+    if (!grid) {
+      return undefined;
+    }
 
     const finish = (event) => {
+      if (event.propertyName !== 'opacity') {
+        return;
+      }
+
       const target = event.target;
 
-      if (!(target instanceof Element)) return;
+      if (!(target instanceof Element)) {
+        return;
+      }
 
-      const { animationKind, animationId } = target.dataset;
-      const status = animationStatus(event.animationName);
+      const { transitionKind, transitionId, transitionStatus } = target.dataset;
 
-      if (!animationKind || !animationId || !status) return;
+      if (!transitionKind || !transitionId || !transitionStatus) {
+        return;
+      }
 
-      if (animationKind === 'stone') {
-        finishStone(animationId, status);
-      } else if (animationKind === 'marker') {
-        finishMarker(animationId, status);
-      } else if (animationKind === 'line') {
-        finishLine(animationId, status);
+      if (transitionKind === 'stone') {
+        finishStone(transitionId, transitionStatus);
+      } else if (transitionKind === 'marker') {
+        finishMarker(transitionId, transitionStatus);
+      } else if (transitionKind === 'line') {
+        finishLine(transitionId, transitionStatus);
       }
     };
 
-    grid.addEventListener('animationend', finish);
-    grid.addEventListener('animationcancel', finish);
-
-    return () => {
-      grid.removeEventListener('animationend', finish);
-      grid.removeEventListener('animationcancel', finish);
-    };
+    grid.addEventListener('transitionend', finish);
+    return () => grid.removeEventListener('transitionend', finish);
   }, [finishStone, finishMarker, finishLine]);
 
   const position = (x, y) => ({
@@ -95,53 +94,55 @@ const Board = memo(function Board({
             gridTemplateRows: `repeat(${boardSize}, 1fr)`
           }}
         >
-          {Array.from(
-            {
-              length: boardSize * boardSize
-            },
-            (_, index) => {
-              const x = index % boardSize;
-              const y = Math.floor(index / boardSize);
-              const stars = [3, boardSize - 4, Math.floor(boardSize / 2)];
-              const isStar = stars.includes(x) && stars.includes(y);
+          {Array.from({ length: boardSize * boardSize }, (_, index) => {
+            const x = index % boardSize;
+            const y = Math.floor(index / boardSize);
+            const stars = [3, boardSize - 4, Math.floor(boardSize / 2)];
+            const isStar = stars.includes(x) && stars.includes(y);
 
-              return (
-                <div key={index} className="cell">
-                  <div className="line h" />
-                  <div className="line v" />
-
-                  {isStar && <div className="hoshi" />}
-                </div>
-              );
-            }
-          )}
+            return (
+              <div key={index} className="cell">
+                <div className="line h" />
+                <div className="line v" />
+                {isStar && <div className="hoshi" />}
+              </div>
+            );
+          })}
 
           {visual.stones.map((stone) => (
             <div
               key={stone.id}
-              className={`stone-layer ${stone.c === 1 ? 'black' : 'white'} ${stone.status}`}
+              className={`stone-layer ${stone.c === 1 ? 'black' : 'white'} ${
+                stone.status
+              }`}
               style={{
                 ...position(stone.x, stone.y),
-                '--stone-delay': `${stone.delay}ms`
+                ...transitionStyle(stone, renderTime, 'stone')
               }}
               data-testid={`stone-${stone.x}-${stone.y}`}
-              data-animation-kind="stone"
-              data-animation-id={stone.id}
+              data-transition-kind="stone"
+              data-transition-id={stone.id}
+              data-transition-status={stone.status}
             />
           ))}
 
-          {visual.marker && (
+          {visual.markers.map((marker) => (
             <div
-              key={visual.marker.id}
+              key={marker.id}
               className={`move-marker ${
-                visual.marker.c === 1 ? 'on-black' : 'on-white'
-              } ${visual.marker.status}`}
-              style={position(visual.marker.x, visual.marker.y)}
+                marker.c === 1 ? 'on-black' : 'on-white'
+              } ${marker.status}`}
+              style={{
+                ...position(marker.x, marker.y),
+                ...transitionStyle(marker, renderTime, 'marker')
+              }}
               data-testid="last-move-marker"
-              data-animation-kind="marker"
-              data-animation-id={visual.marker.id}
+              data-transition-kind="marker"
+              data-transition-id={marker.id}
+              data-transition-status={marker.status}
+              aria-hidden="true"
             />
-          )}
+          ))}
 
           <svg
             className="board-overlay"
@@ -157,9 +158,11 @@ const Board = memo(function Board({
                 y2={visual.line.points.at(-1).y + 0.5}
                 pathLength="1"
                 className={`win-line-svg ${visual.line.status}`}
+                style={transitionStyle(visual.line, renderTime, 'line')}
                 data-testid="win-line"
-                data-animation-kind="line"
-                data-animation-id={visual.line.id}
+                data-transition-kind="line"
+                data-transition-id={visual.line.id}
+                data-transition-status={visual.line.status}
               />
             )}
           </svg>

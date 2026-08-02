@@ -2,7 +2,6 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { getEventRunId, getRunId, matchupKey, sameSlotPair } from '../utils';
 
 const API_BASE = '/api';
-
 const REDUCER_EVENTS = new Set(['game_start', 'run_update', 'game_result']);
 
 const sameId = (first, second) => String(first) === String(second);
@@ -65,17 +64,20 @@ export const matchupsReducer = (state, action) => {
   if (action.type === 'game_start') {
     const event = action.event;
 
-    if (!event.game) return state;
+    if (!event.game) {
+      return state;
+    }
 
     const runId = getEventRunId(event);
 
-    if (!runId) return state;
+    if (!runId) {
+      return state;
+    }
 
     const index = state.findIndex((matchup) => sameId(getRunId(matchup), runId));
 
     if (index >= 0) {
       const current = state[index];
-
       const updated = {
         ...current,
         runId,
@@ -137,7 +139,12 @@ export const matchupsReducer = (state, action) => {
     return state.map((matchup) => {
       const matches =
         sameId(getRunId(matchup), runId) &&
-        sameSlotPair(matchup.hero.slot, matchup.villain.slot, event.black_slot, event.white_slot);
+        sameSlotPair(
+          matchup.hero.slot,
+          matchup.villain.slot,
+          event.black_slot,
+          event.white_slot
+        );
 
       if (!matches) {
         return matchup;
@@ -178,7 +185,6 @@ export function useMatchups(subscribe) {
           type: page === 0 ? 'SET' : 'APPEND',
           data
         });
-
         setHasMore(data.length === 20);
       })
       .catch((error) => {
@@ -192,9 +198,7 @@ export function useMatchups(subscribe) {
         }
       });
 
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [page, revision]);
 
   const loadMore = useCallback((reset = false) => {
@@ -210,10 +214,7 @@ export function useMatchups(subscribe) {
     () =>
       subscribe((event) => {
         if (event.type === 'reset') {
-          dispatch({
-            type: 'RESET'
-          });
-
+          dispatch({ type: 'RESET' });
           loadMore(true);
           return;
         }
@@ -263,7 +264,6 @@ export function useRuns(subscribe) {
     const revision = ++requestRef.current.revision;
 
     requestRef.current.controller = controller;
-
     setLoading(true);
 
     return fetch(`${API_BASE}/runs`, {
@@ -289,14 +289,14 @@ export function useRuns(subscribe) {
   }, []);
 
   useEffect(() => {
-    const request = requestRef.current;
+    const requests = requestRef;
 
     refresh().catch(() => {});
 
     return () => {
-      request.revision += 1;
-      request.controller?.abort();
-      request.controller = null;
+      requests.current.revision += 1;
+      requests.current.controller?.abort();
+      requests.current.controller = null;
     };
   }, [refresh]);
 

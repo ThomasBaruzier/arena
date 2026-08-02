@@ -113,7 +113,6 @@ const renderPhase = (phase, props = {}) =>
 
 beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
-
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(response([]));
 });
 
@@ -129,33 +128,26 @@ describe('MatchGroup', () => {
     const first = screen.getByTestId('player-row-1');
 
     expect(within(first).getByText('AlphaLongName')).toBeInTheDocument();
-
     expect(within(first).getByText('1.0')).toBeInTheDocument();
-
     expect(screen.getByText('W 4')).toHaveClass('badge', 'win');
-
     expect(screen.getByText('L 2')).toHaveClass('badge', 'loss');
-
     expect(screen.getByText('D 3')).toHaveClass('badge', 'draw');
-
     expect(screen.getByText('LIVE')).toHaveClass('badge', 'run-status', 'live');
-
     expect(screen.getByText('9/10')).toHaveClass('badge', 'run-progress', 'live');
   });
 
   it('keeps one arrow mounted through every phase', async () => {
     const onPrepared = vi.fn();
-
-    const { rerender } = renderPhase('closed', {
-      onPrepared
-    });
-
-    const indicator = document.querySelector('.group-indicator');
-
-    const arrow = indicator.querySelector('.group-arrow');
+    const { rerender } = renderPhase('closed', { onPrepared });
+    const arrow = document.querySelector('.group-arrow');
 
     rerender(
-      <MatchGroup {...baseProps} phase="preparing" preparationToken={1} onPrepared={onPrepared} />
+      <MatchGroup
+        {...baseProps}
+        phase="preparing"
+        preparationToken={1}
+        onPrepared={onPrepared}
+      />
     );
 
     expect(document.querySelector('.group-arrow')).toBe(arrow);
@@ -164,16 +156,14 @@ describe('MatchGroup', () => {
 
     for (const phase of ['opening', 'open', 'closing']) {
       rerender(<MatchGroup {...baseProps} phase={phase} onPrepared={onPrepared} />);
-
       expect(document.querySelector('.group-arrow')).toBe(arrow);
     }
   });
 
-  it('keeps matrix and history in one animated body', async () => {
+  it('keeps matrix and history inside one animated body', async () => {
     globalThis.fetch.mockResolvedValueOnce(response([pair]));
 
     const onPrepared = vi.fn();
-
     const { rerender } = renderPhase('preparing', {
       preparationToken: 1,
       onPrepared
@@ -186,30 +176,20 @@ describe('MatchGroup', () => {
     const body = document.querySelector('.group-list');
 
     expect(body).toHaveClass('opening');
-
     expect(
       within(body).getByRole('table', {
         name: 'Player statistics comparison'
       })
     ).toBeInTheDocument();
-
     expect(within(body).getAllByTestId('match-row')).toHaveLength(2);
   });
 
   it('opens initial failure into matrix and Retry', async () => {
     globalThis.fetch
-      .mockResolvedValueOnce(
-        response(
-          {
-            error: 'failed'
-          },
-          false
-        )
-      )
+      .mockResolvedValueOnce(response({ error: 'failed' }, false))
       .mockResolvedValueOnce(response([]));
 
     const onPrepared = vi.fn();
-
     const { rerender } = renderPhase('preparing', {
       preparationToken: 1,
       onPrepared
@@ -229,14 +209,9 @@ describe('MatchGroup', () => {
       name: 'Could not load game history'
     });
 
-    fireEvent.click(
-      within(retry).getByRole('button', {
-        name: 'Retry'
-      })
-    );
+    fireEvent.click(within(retry).getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
-
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
@@ -244,9 +219,7 @@ describe('MatchGroup', () => {
     globalThis.fetch.mockResolvedValueOnce(response([pair]));
 
     const onPrepared = vi.fn();
-
     const onSelectGame = vi.fn();
-
     const { rerender } = renderPhase('preparing', {
       preparationToken: 1,
       onPrepared,
@@ -256,17 +229,22 @@ describe('MatchGroup', () => {
     await waitFor(() => expect(onPrepared).toHaveBeenCalled());
 
     rerender(
-      <MatchGroup {...baseProps} phase="open" onPrepared={onPrepared} onSelectGame={onSelectGame} />
+      <MatchGroup
+        {...baseProps}
+        phase="open"
+        onPrepared={onPrepared}
+        onSelectGame={onSelectGame}
+      />
     );
 
-    expect(document.querySelector('.match-header-row').textContent).toBe('IDSideMvsDurRes');
+    expect(document.querySelector('.match-header-row').textContent).toBe(
+      'IDSideMvsDurRes'
+    );
 
     const rows = screen.getAllByTestId('match-row');
 
     expect(rows[0].querySelector('.side-stone.black')).toBeInTheDocument();
-
     expect(rows[1].querySelector('.side-stone.white')).toBeInTheDocument();
-
     expect(rows[0].querySelector('.row-duration')).toHaveTextContent('1.2s');
 
     fireEvent.click(rows[0]);
@@ -278,7 +256,6 @@ describe('MatchGroup', () => {
     globalThis.fetch.mockResolvedValue(response([pair]));
 
     const onPrepared = vi.fn();
-
     const { rerender } = renderPhase('preparing', {
       preparationToken: 1,
       onPrepared
@@ -288,18 +265,13 @@ describe('MatchGroup', () => {
 
     rerender(<MatchGroup {...baseProps} phase="open" onPrepared={onPrepared} />);
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: /Sort by duration/
-      })
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Sort by duration/ }));
 
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
 
     const url = globalThis.fetch.mock.calls[1][0];
 
     expect(url).toContain('sort=duration');
-
     expect(url).not.toContain('hero_slot');
   });
 });

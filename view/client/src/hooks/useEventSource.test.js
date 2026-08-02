@@ -11,7 +11,6 @@ class FakeEventSource {
     this.onmessage = null;
     this.onerror = null;
     this.closed = false;
-
     FakeEventSource.instances.push(this);
   }
 
@@ -39,9 +38,7 @@ const currentSource = () => FakeEventSource.instances.at(-1);
 describe('useEventSource', () => {
   beforeEach(() => {
     FakeEventSource.instances = [];
-
     vi.useFakeTimers();
-
     vi.stubGlobal('EventSource', FakeEventSource);
   });
 
@@ -58,7 +55,6 @@ describe('useEventSource', () => {
     });
 
     expect(result.current.isConnected).toBe(true);
-
     expect(result.current.connectionEpoch).toBe(0);
   });
 
@@ -90,14 +86,11 @@ describe('useEventSource', () => {
 
   it('publishes generation and active-source events', () => {
     const listener = vi.fn();
-
     const { result } = renderHook(() => useEventSource('/api/events'));
 
     act(() => {
       result.current.subscribe(listener);
-
       currentSource().open();
-
       currentSource().message({
         type: 'connected',
         generation: 'viewer-2'
@@ -105,7 +98,6 @@ describe('useEventSource', () => {
     });
 
     expect(result.current.generation).toBe('viewer-2');
-
     expect(listener).toHaveBeenCalledWith({
       type: 'connected',
       generation: 'viewer-2'
@@ -114,7 +106,6 @@ describe('useEventSource', () => {
 
   it('ignores messages from a replaced source', () => {
     const listener = vi.fn();
-
     const { result } = renderHook(() => useEventSource('/api/events'));
 
     act(() => {
@@ -132,12 +123,8 @@ describe('useEventSource', () => {
     const second = currentSource();
 
     act(() => {
-      first.message({
-        type: 'stale'
-      });
-
+      first.message({ type: 'stale' });
       second.open();
-
       second.message({
         type: 'current',
         generation: 'new'
@@ -145,7 +132,6 @@ describe('useEventSource', () => {
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
-
     expect(listener).toHaveBeenCalledWith({
       type: 'current',
       generation: 'new'
@@ -154,7 +140,6 @@ describe('useEventSource', () => {
 
   it('closes the active source on unmount', () => {
     const { unmount } = renderHook(() => useEventSource('/api/events'));
-
     const active = currentSource();
 
     unmount();

@@ -23,14 +23,9 @@
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
-  margin-left:
-    calc(
-      var(--sidebar-width) * -1
-    );
+  margin-left: calc(var(--sidebar-width) * -1);
   background: var(--bg-sidebar);
-  border-right:
-    1px solid
-    var(--border);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -47,9 +42,7 @@
 .sidebar-header {
   height: var(--topbar-height);
   padding: 0 14px;
-  border-bottom:
-    1px solid
-    var(--border);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,8 +71,7 @@
   padding: 0;
   background: transparent;
   border: 0;
-  border-radius:
-    var(--control-radius);
+  border-radius: var(--control-radius);
   color: var(--text-dim);
   display: grid;
   place-items: center;
@@ -111,24 +103,12 @@
   height: var(--topbar-height);
   padding: 0 12px;
   background: var(--bg-sidebar);
-  border-bottom:
-    1px solid
-    var(--border);
+  border-bottom: 1px solid var(--border);
   display: grid;
-  grid-template-columns:
-    34px
-    minmax(0, 1fr)
-    34px;
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
   flex-shrink: 0;
   z-index: 40;
-}
-
-.topbar::after {
-  content: '';
-  width: 34px;
-  height: 1px;
-  grid-column: 3;
 }
 
 .menu-toggle {
@@ -149,10 +129,7 @@
   margin: 0 auto;
   grid-column: 2;
   display: grid;
-  grid-template-columns:
-    minmax(0, 1fr)
-    72px
-    minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
 }
@@ -172,8 +149,7 @@
   justify-content: flex-start;
 }
 
-.match-bar
-.player-identity {
+.match-bar .player-identity {
   min-width: 0;
   max-width: 100%;
   display: flex;
@@ -181,13 +157,11 @@
   gap: 7px;
 }
 
-.player-left
-.player-identity {
+.player-left .player-identity {
   justify-content: flex-end;
 }
 
-.player-right
-.player-identity {
+.player-right .player-identity {
   justify-content: flex-start;
 }
 
@@ -196,34 +170,22 @@
   height: 20px;
   border: 1px solid #333;
   border-radius: 50%;
-  box-shadow:
-    0 2px 4px
-    rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
   flex-shrink: 0;
 }
 
-.match-bar
-.p-color.black {
-  background:
-    radial-gradient(
-      circle at 30% 30%,
-      #505050,
-      #030303 72%
-    );
+.match-bar .p-color.black {
+  background: radial-gradient(circle at 30% 30%, #505050, #030303 72%);
 }
 
-.match-bar
-.p-color.white {
-  background:
-    radial-gradient(
-      circle at 30% 30%,
-      #fff,
-      #d9d9d9 72%
-    );
+.match-bar .p-color.white {
+  background: radial-gradient(circle at 30% 30%, #fff, #d9d9d9 72%);
 }
 
 .match-bar .p-ver,
-.match-bar .p-name {
+.match-bar .p-name,
+.live-tag,
+.final-score {
   height: 22px;
   font-family: inherit;
   font-size: 0.94rem;
@@ -233,11 +195,8 @@
 .match-bar .p-ver {
   max-width: 74px;
   padding: 0 5px;
-  background:
-    rgba(255, 255, 255, 0.055);
-  border:
-    1px solid
-    rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 4px;
   color: var(--text-muted);
   display: inline-flex;
@@ -258,8 +217,7 @@
   white-space: nowrap;
 }
 
-.match-bar
-.p-name.gold {
+.match-bar .p-name.gold {
   color: var(--accent);
 }
 
@@ -273,37 +231,30 @@
 
 .live-tag,
 .final-score {
-  font-variant-numeric:
-    tabular-nums;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .live-tag {
   min-width: 58px;
-  height: 25px;
   padding: 0 8px;
-  border:
-    1px solid
-    rgba(234, 179, 8, 0.48);
+  border: 1px solid rgba(234, 179, 8, 0.48);
   border-radius: 999px;
   color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.73rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
 }
 
 .final-score {
   color: var(--text-strong);
-  font-size: 1.04rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .final-score.void {
   color: var(--text-dim);
-  font-size: 0.76rem;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.05em;
 }

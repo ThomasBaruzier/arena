@@ -5,10 +5,8 @@ namespace Arena::Analysis {
 
 uint64_t Zobrist::mix(uint64_t value) {
     value += 0x9e3779b97f4a7c15ULL;
-    value = (value ^ (value >> 30)) *
-        0xbf58476d1ce4e5b9ULL;
-    value = (value ^ (value >> 27)) *
-        0x94d049bb133111ebULL;
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
     return value ^ (value >> 31);
 }
 
@@ -21,17 +19,13 @@ uint64_t Zobrist::hash(
         static_cast<uint32_t>(board_size)
     );
 
-    for (size_t i = 0; i < moves.size(); ++i) {
-        uint64_t token =
-            static_cast<uint32_t>(moves[i].x);
-        token |=
-            static_cast<uint64_t>(
-                static_cast<uint32_t>(moves[i].y)
-            ) << 16;
-        token |=
-            static_cast<uint64_t>((i % 2) + 1) << 32;
-        token |=
-            static_cast<uint64_t>(i) << 40;
+    for (size_t index = 0; index < moves.size(); ++index) {
+        uint64_t token = static_cast<uint32_t>(moves[index].x);
+        token |= static_cast<uint64_t>(
+            static_cast<uint32_t>(moves[index].y)
+        ) << 16;
+        token |= static_cast<uint64_t>((index % 2) + 1) << 32;
+        token |= static_cast<uint64_t>(index) << 40;
 
         hash = mix(hash ^ mix(token));
     }

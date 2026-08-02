@@ -85,7 +85,6 @@ describe('matchupsReducer', () => {
       name: 'Alpha',
       version: '1.0'
     });
-
     expect(next[0].villain).toMatchObject({
       slot: 2,
       name: 'Beta',
@@ -93,7 +92,7 @@ describe('matchupsReducer', () => {
     });
   });
 
-  it('merges the complete run snapshot', () => {
+  it('merges a complete run snapshot', () => {
     const next = matchupsReducer([baseMatchup], {
       type: 'run_update',
       event: {
@@ -121,13 +120,11 @@ describe('matchupsReducer', () => {
       draws: 3,
       total: 9
     });
-
     expect(next[0].run).toMatchObject({
       id: 'run',
       analysis_enabled: 1,
       p1_eff: 92
     });
-
     expect(next[0].hero).toMatchObject({
       name: 'Updated Alpha',
       version: '1.1'
@@ -143,7 +140,6 @@ describe('matchupsReducer', () => {
       total: 6,
       live_count: 1
     };
-
     const next = matchupsReducer([current], {
       type: 'game_result',
       event: {
@@ -174,7 +170,6 @@ describe('useRuns', () => {
       .mockReturnValueOnce(second.promise);
 
     const { result } = renderHook(() => useRuns(subscribe));
-
     let refreshPromise;
 
     act(() => {
@@ -182,48 +177,24 @@ describe('useRuns', () => {
     });
 
     await act(async () => {
-      second.resolve(
-        response([
-          {
-            id: 'new'
-          }
-        ])
-      );
-
+      second.resolve(response([{ id: 'new' }]));
       await refreshPromise;
     });
 
-    expect(result.current.runs).toEqual([
-      {
-        id: 'new'
-      }
-    ]);
+    expect(result.current.runs).toEqual([{ id: 'new' }]);
 
     await act(async () => {
-      first.resolve(
-        response([
-          {
-            id: 'old'
-          }
-        ])
-      );
-
+      first.resolve(response([{ id: 'old' }]));
       await first.promise;
     });
 
-    expect(result.current.runs).toEqual([
-      {
-        id: 'new'
-      }
-    ]);
+    expect(result.current.runs).toEqual([{ id: 'new' }]);
   });
 
-  it('does not let a late refresh erase a recovered run', async () => {
+  it('does not let a late refresh erase a streamed run', async () => {
     const request = deferred();
     const stream = liveSubscription();
-
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(request.promise);
-
     const { result } = renderHook(() => useRuns(stream.subscribe));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -242,7 +213,6 @@ describe('useRuns', () => {
     });
 
     expect(signal.aborted).toBe(true);
-
     expect(result.current.runs).toEqual([
       {
         id: 'recovered',
@@ -253,7 +223,6 @@ describe('useRuns', () => {
 
     await act(async () => {
       request.resolve(response([]));
-
       await request.promise;
       await Promise.resolve();
     });
@@ -267,7 +236,7 @@ describe('useRuns', () => {
     ]);
   });
 
-  it('upserts a missing run update', async () => {
+  it('upserts a missing streamed run', async () => {
     const stream = liveSubscription();
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response([]));
@@ -315,7 +284,7 @@ describe('useRuns', () => {
 });
 
 describe('useMatchups', () => {
-  it('does not install an invalid response', async () => {
+  it('does not install a malformed collection', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -328,7 +297,6 @@ describe('useMatchups', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.matchups).toEqual([]);
-
     expect(result.current.hasMore).toBe(false);
   });
 });

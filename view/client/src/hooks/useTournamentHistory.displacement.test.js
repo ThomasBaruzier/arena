@@ -55,13 +55,7 @@ afterEach(() => {
 });
 
 it('restores a live-displaced boundary pair after pagination', async () => {
-  const firstPage = Array.from(
-    {
-      length: 50
-    },
-    (_, index) => pair(100 - index)
-  );
-
+  const firstPage = Array.from({ length: 50 }, (_, index) => pair(100 - index));
   const source = stream();
   const onPrepared = vi.fn();
 
@@ -125,7 +119,9 @@ it('restores a live-displaced boundary pair after pagination', async () => {
 it('exposes live growth beyond a short initial page without refetching', async () => {
   const source = stream();
   const onPrepared = vi.fn();
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response([pair(1)]));
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(response([pair(1)]));
 
   const { result, rerender } = renderHook(
     ({ phase, token }) =>
@@ -174,7 +170,7 @@ it('exposes live growth beyond a short initial page without refetching', async (
 
   const ids = result.current.pairs.map((current) => current.max_id);
 
-  expect(new Set(ids)).toHaveLength(60);
+  expect(new Set(ids).size).toBe(60);
   expect(ids).toEqual(Array.from({ length: 60 }, (_, index) => 60 - index));
   expect(result.current.hasMore).toBe(false);
   expect(fetchMock).toHaveBeenCalledTimes(1);

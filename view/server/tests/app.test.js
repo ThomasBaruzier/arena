@@ -30,9 +30,11 @@ const slots = [
 
 const blackWin = '10,10,1;0,1,2;11,10,1;1,1,2;12,10,1;2,1,2;13,10,1;3,1,2;14,10,1';
 
-const alternateBlackWin = '10,12,1;0,2,2;11,12,1;1,2,2;12,12,1;2,2,2;13,12,1;3,2,2;14,12,1';
+const alternateBlackWin =
+  '10,12,1;0,2,2;11,12,1;1,2,2;12,12,1;2,2,2;13,12,1;3,2,2;14,12,1';
 
-const whiteWin = '10,10,1;0,1,2;11,10,1;1,1,2;12,10,1;2,1,2;13,10,1;3,1,2;14,11,1;4,1,2';
+const whiteWin =
+  '10,10,1;0,1,2;11,10,1;1,1,2;12,10,1;2,1,2;13,10,1;3,1,2;14,11,1;4,1,2';
 
 const earlyBlackWin = `${blackWin};4,1,2`;
 
@@ -167,7 +169,8 @@ describe('viewer routes', () => {
     await post([declaration, start, firstMove]);
     await post([firstMove]);
 
-    const history = (await request(app).get(gamesUrl('duplicate-move')).expect(200)).body;
+    const history = (await request(app).get(gamesUrl('duplicate-move')).expect(200))
+      .body;
 
     expect(history[0].games[0].move_count).toBe(1);
   });
@@ -321,7 +324,8 @@ describe('viewer routes', () => {
       duration: 987
     });
 
-    const details = (await request(app).get(`/api/game/${summary.id}`).expect(200)).body;
+    const details = (await request(app).get(`/api/game/${summary.id}`).expect(200))
+      .body;
 
     expect(details).toMatchObject({
       moves: blackWin,
@@ -352,7 +356,8 @@ describe('viewer routes', () => {
       422
     );
 
-    const history = (await request(app).get(gamesUrl('duplicate-duration')).expect(200)).body;
+    const history = (await request(app).get(gamesUrl('duplicate-duration')).expect(200))
+      .body;
 
     expect(history[0].games[0].duration).toBe(100);
   });
@@ -394,13 +399,15 @@ describe('viewer routes', () => {
       await post([conflict], 422);
     }
 
-    const history = (await request(app).get(gamesUrl('result-conflict')).expect(200)).body;
+    const history = (await request(app).get(gamesUrl('result-conflict')).expect(200))
+      .body;
 
     expect(history).toHaveLength(1);
     expect(history[0].games).toHaveLength(1);
 
-    const details = (await request(app).get(`/api/game/${history[0].games[0].id}`).expect(200))
-      .body;
+    const details = (
+      await request(app).get(`/api/game/${history[0].games[0].id}`).expect(200)
+    ).body;
 
     expect(details).toMatchObject({
       winner_color: 1,

@@ -19,13 +19,12 @@ inline std::string truncate(
     const std::string& value,
     size_t max_length = 64
 ) {
-    if (value.length() <= max_length) return value;
-    return value.substr(0, max_length) + "...";
+    return value.length() <= max_length
+        ? value
+        : value.substr(0, max_length) + "...";
 }
 
-inline std::string json_escape(
-    const std::string& value
-) {
+inline std::string json_escape(const std::string& value) {
     std::stringstream output;
 
     for (unsigned char character : value) {
@@ -71,15 +70,15 @@ inline std::string json_escape(
     return output.str();
 }
 
-inline std::vector<std::string> split_csv(
-    const std::string& value
-) {
+inline std::vector<std::string> split_csv(const std::string& value) {
     std::vector<std::string> result;
     std::stringstream stream(value);
     std::string item;
 
     while (std::getline(stream, item, ',')) {
-        if (!item.empty()) result.push_back(item);
+        if (!item.empty()) {
+            result.push_back(item);
+        }
     }
 
     return result;
@@ -99,9 +98,7 @@ inline double parse_nonnegative_number(
             }
         )
     ) {
-        throw std::invalid_argument(
-            "Invalid numeric value: " + value
-        );
+        throw std::invalid_argument("Invalid numeric value: " + value);
     }
 
     double number = std::stod(value, &consumed);
@@ -111,22 +108,16 @@ inline double parse_nonnegative_number(
         !std::isfinite(number) ||
         number < 0.0
     ) {
-        throw std::invalid_argument(
-            "Invalid numeric value: " + value
-        );
+        throw std::invalid_argument("Invalid numeric value: " + value);
     }
 
     return number;
 }
 
-inline int parse_duration_ms(
-    const std::string& value
-) {
+inline int parse_duration_ms(const std::string& value) {
     size_t consumed = 0;
-    double number =
-        parse_nonnegative_number(value, consumed);
+    double number = parse_nonnegative_number(value, consumed);
     std::string unit = value.substr(consumed);
-
     long double multiplier = 0;
 
     if (unit.empty() || unit == "s") {
@@ -138,43 +129,31 @@ inline int parse_duration_ms(
     } else if (unit == "h") {
         multiplier = 3600000.0L;
     } else {
-        throw std::invalid_argument(
-            "Unknown duration unit in: " + value
-        );
+        throw std::invalid_argument("Unknown duration unit in: " + value);
     }
 
-    long double result =
-        static_cast<long double>(number) *
-        multiplier;
+    long double result = static_cast<long double>(number) * multiplier;
 
     if (
         result >
-        static_cast<long double>(
-            std::numeric_limits<int>::max()
-        )
+        static_cast<long double>(std::numeric_limits<int>::max())
     ) {
-        throw std::out_of_range(
-            "Duration is too large: " + value
-        );
+        throw std::out_of_range("Duration is too large: " + value);
     }
 
     return static_cast<int>(result);
 }
 
-inline long long parse_memory_bytes(
-    const std::string& value
-) {
-    if (value.empty()) return 0;
+inline long long parse_memory_bytes(const std::string& value) {
+    if (value.empty()) {
+        return 0;
+    }
 
     size_t consumed = 0;
-    double number =
-        parse_nonnegative_number(value, consumed);
+    double number = parse_nonnegative_number(value, consumed);
     std::string unit = value.substr(consumed);
 
-    if (
-        !unit.empty() &&
-        (unit.back() == 'b' || unit.back() == 'B')
-    ) {
+    if (!unit.empty() && (unit.back() == 'b' || unit.back() == 'B')) {
         unit.pop_back();
     }
 
@@ -185,40 +164,30 @@ inline long long parse_memory_bytes(
     } else if (unit == "k" || unit == "K") {
         multiplier = 1024.0L;
     } else if (unit == "g" || unit == "G") {
-        multiplier =
-            1024.0L * 1024.0L * 1024.0L;
+        multiplier = 1024.0L * 1024.0L * 1024.0L;
     } else {
-        throw std::invalid_argument(
-            "Unknown memory unit in: " + value
-        );
+        throw std::invalid_argument("Unknown memory unit in: " + value);
     }
 
-    long double result =
-        static_cast<long double>(number) *
-        multiplier;
+    long double result = static_cast<long double>(number) * multiplier;
 
     if (
         result >
-        static_cast<long double>(
-            std::numeric_limits<long long>::max()
-        )
+        static_cast<long double>(std::numeric_limits<long long>::max())
     ) {
-        throw std::out_of_range(
-            "Memory value is too large: " + value
-        );
+        throw std::out_of_range("Memory value is too large: " + value);
     }
 
     return static_cast<long long>(result);
 }
 
-inline uint64_t parse_node_count(
-    const std::string& value
-) {
-    if (value.empty()) return 0;
+inline uint64_t parse_node_count(const std::string& value) {
+    if (value.empty()) {
+        return 0;
+    }
 
     size_t consumed = 0;
-    double number =
-        parse_nonnegative_number(value, consumed);
+    double number = parse_nonnegative_number(value, consumed);
     std::string suffix = value.substr(consumed);
 
     std::transform(
@@ -226,9 +195,7 @@ inline uint64_t parse_node_count(
         suffix.end(),
         suffix.begin(),
         [](unsigned char character) {
-            return static_cast<char>(
-                std::tolower(character)
-            );
+            return static_cast<char>(std::tolower(character));
         }
     );
 
@@ -244,24 +211,17 @@ inline uint64_t parse_node_count(
         multiplier = 1000000000.0L;
     } else {
         throw std::invalid_argument(
-            "Unknown node count suffix in: " +
-            value
+            "Unknown node count suffix in: " + value
         );
     }
 
-    long double result =
-        static_cast<long double>(number) *
-        multiplier;
+    long double result = static_cast<long double>(number) * multiplier;
 
     if (
         result >
-        static_cast<long double>(
-            std::numeric_limits<uint64_t>::max()
-        )
+        static_cast<long double>(std::numeric_limits<uint64_t>::max())
     ) {
-        throw std::out_of_range(
-            "Node count is too large: " + value
-        );
+        throw std::out_of_range("Node count is too large: " + value);
     }
 
     return static_cast<uint64_t>(result);
@@ -270,18 +230,16 @@ inline uint64_t parse_node_count(
 inline std::string generate_run_id() {
     auto now = std::chrono::system_clock::now();
     auto milliseconds =
-        std::chrono::duration_cast<
-            std::chrono::milliseconds
-        >(now.time_since_epoch()).count();
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()
+        ).count();
 
-    thread_local std::mt19937 generator(
-        std::random_device{}()
+    thread_local std::mt19937 generator(std::random_device{}());
+
+    std::uniform_int_distribution<uint32_t> distribution(
+        0,
+        std::numeric_limits<uint32_t>::max()
     );
-    std::uniform_int_distribution<uint32_t>
-        distribution(
-            0,
-            std::numeric_limits<uint32_t>::max()
-        );
 
     std::ostringstream result;
     result
@@ -293,27 +251,21 @@ inline std::string generate_run_id() {
     return result.str();
 }
 
-inline std::string format_nodes(
-    uint64_t nodes
-) {
-    if (nodes == 0) return "";
+inline std::string format_nodes(uint64_t nodes) {
+    if (nodes == 0) {
+        return "";
+    }
 
     if (nodes >= 1000000000) {
-        return std::to_string(
-            nodes / 1000000000
-        ) + "g";
+        return std::to_string(nodes / 1000000000) + "g";
     }
 
     if (nodes >= 1000000) {
-        return std::to_string(
-            nodes / 1000000
-        ) + "m";
+        return std::to_string(nodes / 1000000) + "m";
     }
 
     if (nodes >= 1000) {
-        return std::to_string(
-            nodes / 1000
-        ) + "k";
+        return std::to_string(nodes / 1000) + "k";
     }
 
     return std::to_string(nodes);

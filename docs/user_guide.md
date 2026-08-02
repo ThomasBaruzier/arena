@@ -6,7 +6,7 @@ Player 1 is canonical slot 1 for the complete run. Player 2 is canonical slot 2.
 
 Each pair contains two games with reversed black and white colors. Color reversal does not reverse slot ownership.
 
-Displayed tournament W/L/D, Elo, ERF, time, efficiency, evaluator metrics, and crashes remain attached to canonical slots.
+Tournament W/L/D, Elo, ERF, time, efficiency, evaluator metrics, and crashes remain attached to canonical slots.
 
 ## Players
 
@@ -19,9 +19,9 @@ Displayed tournament W/L/D, Elo, ERF, time, efficiency, evaluator metrics, and c
 -L2
 ```
 
-`-e` enables post-move evaluator analysis for the run.
+`-e` enables post-move evaluator analysis.
 
-The run declaration carries an immutable `analysis_enabled` value. It reflects configuration, not whether an evaluator process later remains available.
+The run records whether evaluator analysis was configured. Individual moves may still lack a valid evaluator sample.
 
 ## Board and openings
 
@@ -40,11 +40,11 @@ Opening lines use compact letter-number coordinates:
 j10k11i9
 ```
 
-Every opening is validated before games are queued. Arena rejects an opening when:
+Arena rejects an opening when:
 
 - A coordinate is outside the board
 - A coordinate is repeated
-- Any opening move creates a winning line
+- A move creates a winning line
 
 ## Time controls
 
@@ -84,7 +84,7 @@ Memory suffixes are `k`, `m`, and `g`.
 
 Node suffixes are `k`, `m`, `b`, and `g`.
 
-A configured node limit causes Arena to send zero protocol time limits so deterministic node control can take precedence.
+When a node limit is configured, Arena sends zero protocol time limits so node control can take precedence.
 
 ## Match control
 
@@ -127,7 +127,7 @@ stopped
 NDJSON contains:
 
 - Configuration
-- `analysis_enabled`
+- Whether evaluator analysis was configured
 - Run status
 - Slot-1 W/L/D
 - Elo and ERF
@@ -151,19 +151,19 @@ Unavailable efficiency is `null`.
 143  SIGTERM
 ```
 
-System failure takes precedence over signal status. A real termination signal takes precedence over an otherwise recorded player failure.
+System failure takes precedence over signal status. A termination signal takes precedence over an otherwise recorded player failure.
 
 ## Viewer storage
 
 The viewer database persists across ordinary API restarts.
 
-There is no schema migration or legacy schema support. Wipe the viewer database when installing a version with a new schema:
+The viewer does not migrate older schemas. When installing a version with a new schema, stop the viewer and remove its database:
 
 ```sh
 rm -rf view/data
 ```
 
-An explicit reset is destructive:
+An authenticated reset deletes all runs and games:
 
 ```sh
 curl \
@@ -172,9 +172,7 @@ curl \
   http://localhost:3001/api/reset
 ```
 
-Reset rotates the internal viewer generation and clears runs and games.
-
-Arena retains only enough telemetry to recover active work:
+Arena retains enough telemetry to restore active work after a reset:
 
 - Active run declarations
 - Latest active aggregate updates
@@ -182,49 +180,24 @@ Arena retains only enough telemetry to recover active work:
 - In-flight moves
 - Unacknowledged results
 
-Acknowledged completed games are not replayed after reset.
-
-## Viewer shell
-
-The Arena and Play sidebars are fixed at `300px`.
-
-The top bars are `52px` high on desktop and mobile.
-
-Arena keeps player identities on one line:
-
-```text
-● `version` Alpha   1 – 0   Beta `version` ○
-```
-
-Versions use the regular interface font inside a flat inline-code badge. Versions remain visible before names are truncated.
-
-Play uses a symmetric top bar:
-
-```text
-● `You` 1   YOUR TURN   0 `AI` ○
-```
-
-The real Play opponent name and version appear in the Analysis heading.
+Acknowledged completed games are not replayed after a reset.
 
 ## Tournament cards
 
-Collapsed tournament cards show:
+A collapsed tournament card shows:
 
-- Bot name and version
-- Slot-1 W/L/D badges
+- Bot names and versions
+- Slot-1 W/L/D
 - Run status
 - Games played
-- A right-facing disclosure arrow
 
-The arrow becomes a spinner while initial history is fetched. It rotates downward while the tournament opens and returns right while it closes.
+Expanding a tournament shows its statistics and game history.
 
-When another tournament is selected, the current tournament remains open while the target fetch completes. The current tournament then closes before the prepared target opens.
-
-A failed history request opens the tournament into its statistics matrix and a centered Retry action.
+If history cannot be loaded, the expanded tournament provides a Retry action.
 
 ## Tournament statistics
 
-The matrix uses canonical row labels:
+The matrix uses canonical rows:
 
 ```text
 P1
@@ -251,11 +224,11 @@ CMA
 Bln
 ```
 
-CMA and Bln remain present for every analysis-enabled run. Unsampled values display `-`. A sampled zero displays `0.0%`.
+CMA and Bln remain visible for an analysis-enabled run. A value without samples displays `-`. A sampled zero displays `0.0%`.
 
-If either bot crashes, Crash replaces Time. It does not add another column.
+If either bot crashes, Crash replaces Time.
 
-Long aggregate times display as:
+Long durations use compact forms:
 
 ```text
 59m59s
@@ -279,13 +252,19 @@ Res
 
 Side is canonical slot 1's color in that game.
 
-ID, move count, duration, and result are server-sortable. Initial history, explicit sorting, and pagination are server-side. Complete streamed pair snapshots update and reorder the visible page locally without clearing the rows or refetching the first page.
+ID, move count, duration, and result are sortable.
 
 Within a pair, the game where slot 1 is black appears before the game where slot 1 is white.
 
+Selecting a row opens that game on the board. Game URLs use the numeric viewer ID:
+
+```text
+/1042
+```
+
 ## Arena playback
 
-Playback controls are ordered as:
+The controls are:
 
 ```text
 Replay
@@ -297,52 +276,44 @@ Next
 3x
 ```
 
-Playback delays are:
+Replay pauses playback and returns to the empty position.
 
-```text
-1x  1000ms
-2x   500ms
-3x    50ms
-```
+Previous and Next step through individual moves. The speed controls choose the automatic playback rate.
 
-Replay pauses playback and returns to move zero. All visible stones leave together.
-
-A one-step rewind uses the reverse stone animation. The last-move marker moves only after the departing stone finishes. A visible winning line retracts when leaving the terminal position.
+The winning line is shown on the final position when the game ended with five or more stones in a row.
 
 ## Play controls
 
-Play uses one segmented Game row:
+Play uses:
 
 ```text
-New game | As ○ | Time 1s
+New game
+As
+Time
 ```
 
-The three segments have equal width.
+Changing As selects the Player color for the next game. It does not alter the active game.
 
-Changing As selects the color for the next game. It does not alter the active game.
+Changing Time does not restart the game or cancel a search already in progress. It applies to the next search.
 
-Changing Time does not restart the game or cancel an active search. It applies to the next search that starts.
+The Analysis card retains the AI search history for the current game.
 
-The Analysis card retains every AI search from the current game and scrolls internally.
+## Sharing and restoration
 
-## Board motion
+The link action in the Analysis heading copies a self-contained URL for the current game.
 
-New live stones animate from reduced scale and zero opacity before their first visible frame.
+A shared link preserves:
 
-Fast batched updates animate every appended move, including AI responses that arrive before an intermediate browser paint.
+- The complete position
+- Player color
+- Think time
+- Analysis history
+- Bot identity associated with the analysis
 
-The last-move dot is an independent layer. It does not scale with the stone.
+An unfinished shared game can be continued.
 
-Desktop move previews are available only on devices with a fine pointer and genuine hover support. Touch devices do not render a move preview.
+If the bundled bot has changed, existing analysis keeps its recorded bot identity and future AI moves use the currently bundled bot.
 
-Reduced-motion preferences make board and interface transitions effectively immediate.
+Play saves the current game in the browser. Reloading restores the latest position and analysis when no shared game is present.
 
-## Game routes
-
-Game routes use only the numeric viewer ID:
-
-```text
-/1042
-```
-
-Viewer generation never appears in the URL.
+The clipboard action copies a sectioned CSV export containing game metadata, chronological moves, and exact analysis values.

@@ -28,18 +28,19 @@ const openTournament = (result, key) => {
 
 describe('tournamentAccordionReducer', () => {
   it('returns the initial state after reset', () => {
-    const state = {
-      activeKey: 'a',
-      targetKey: 'b',
-      targetToken: 2,
-      targetReady: true,
-      phase: 'closing'
-    };
-
     expect(
-      tournamentAccordionReducer(state, {
-        type: 'RESET'
-      })
+      tournamentAccordionReducer(
+        {
+          activeKey: 'a',
+          targetKey: 'b',
+          targetToken: 2,
+          targetReady: true,
+          phase: 'closing'
+        },
+        {
+          type: 'RESET'
+        }
+      )
     ).toEqual(initialTournamentAccordionState);
   });
 
@@ -119,7 +120,6 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('open');
-
     expect(result.current.phaseFor('b')).toBe('preparing');
 
     const token = result.current.tokenFor('b');
@@ -129,7 +129,6 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('closing');
-
     expect(result.current.phaseFor('b')).toBe('preparing');
 
     act(() => {
@@ -137,7 +136,6 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('closed');
-
     expect(result.current.phaseFor('b')).toBe('opening');
 
     act(() => {
@@ -163,9 +161,7 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('open');
-
     expect(result.current.phaseFor('b')).toBe('closed');
-
     expect(result.current.phaseFor('c')).toBe('preparing');
 
     act(() => {
@@ -173,7 +169,6 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('open');
-
     expect(result.current.phaseFor('c')).toBe('preparing');
   });
 
@@ -188,7 +183,6 @@ describe('useTournamentAccordion', () => {
     });
 
     expect(result.current.phaseFor('a')).toBe('open');
-
     expect(result.current.phaseFor('b')).toBe('closed');
   });
 
@@ -233,14 +227,10 @@ describe('useTournamentAccordion', () => {
 
     act(() => {
       result.current.request('b');
-    });
-
-    act(() => {
       result.current.prune(new Set(['a']));
     });
 
     expect(result.current.phaseFor('a')).toBe('open');
-
     expect(result.current.phaseFor('b')).toBe('closed');
 
     act(() => {

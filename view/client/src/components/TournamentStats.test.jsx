@@ -25,11 +25,7 @@ const run = {
 };
 
 const rowFor = (name) =>
-  screen
-    .getByRole('rowheader', {
-      name
-    })
-    .closest('[role="row"]');
+  screen.getByRole('rowheader', { name }).closest('[role="row"]');
 
 describe('tournamentTimeValue', () => {
   it.each([
@@ -48,9 +44,7 @@ describe('tournamentTimeValue', () => {
 
   it('rejects unavailable and invalid values', () => {
     expect(tournamentTimeValue(null)).toBe('-');
-
     expect(tournamentTimeValue(-1)).toBe('-');
-
     expect(tournamentTimeValue('bad')).toBe('-');
   });
 });
@@ -62,18 +56,13 @@ describe('TournamentStats', () => {
     const table = screen.getByRole('table');
 
     expect(table).toHaveClass('stats-table', 'core');
-
     expect(
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent)
     ).toEqual(['', 'Elo', 'Time', 'ERF', 'Eff']);
-
     expect(rowFor('P1').textContent).toBe('P110248m12s61.2%94.1%');
-
     expect(rowFor('P2').textContent).toBe('P29767m48s38.8%87.6%');
-
-    expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
   });
 
   it('keeps both analysis columns stable before samples exist', () => {
@@ -89,15 +78,12 @@ describe('TournamentStats', () => {
     const table = screen.getByRole('table');
 
     expect(table).toHaveClass('analyzed');
-
     expect(
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent)
     ).toEqual(['', 'Elo', 'Time', 'ERF', 'Eff', 'CMA', 'Bln']);
-
     expect(within(rowFor('P1')).getAllByText('-')).toHaveLength(2);
-
     expect(within(rowFor('P2')).getAllByText('-')).toHaveLength(2);
   });
 
@@ -115,7 +101,6 @@ describe('TournamentStats', () => {
     );
 
     expect(within(rowFor('P1')).getAllByText('0.0%')).toHaveLength(2);
-
     expect(rowFor('P2')).toHaveTextContent('-0.0%');
   });
 
@@ -129,20 +114,11 @@ describe('TournamentStats', () => {
       />
     );
 
+    expect(screen.getByRole('columnheader', { name: 'Crash' })).toBeInTheDocument();
     expect(
-      screen.getByRole('columnheader', {
-        name: 'Crash'
-      })
-    ).toBeInTheDocument();
-
-    expect(
-      screen.queryByRole('columnheader', {
-        name: 'Time'
-      })
+      screen.queryByRole('columnheader', { name: 'Time' })
     ).not.toBeInTheDocument();
-
     expect(rowFor('P1')).toHaveTextContent('P11024061.2%94.1%');
-
     expect(rowFor('P2')).toHaveTextContent('P2976238.8%87.6%');
   });
 
@@ -158,7 +134,6 @@ describe('TournamentStats', () => {
     );
 
     expect(rowFor('P1')).toHaveTextContent('175%');
-
     expect(rowFor('P2')).toHaveTextContent('-');
   });
 });

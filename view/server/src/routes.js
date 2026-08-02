@@ -51,7 +51,14 @@ const RESULT_FIELDS = new Set([
   'duration'
 ]);
 
-const GAME_QUERY_FIELDS = new Set(['run_id', 'limit', 'offset', 'sort', 'order', 'cursor']);
+const GAME_QUERY_FIELDS = new Set([
+  'run_id',
+  'limit',
+  'offset',
+  'sort',
+  'order',
+  'cursor'
+]);
 
 const RUN_UPDATE_VALUES = [
   ['games_played', 'games_played', 'integer'],
@@ -101,15 +108,14 @@ const reject = (message) => {
   throw new ProtocolError(message);
 };
 
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const onlyFields = (value, allowed) =>
   isObject(value) && Object.keys(value).every((field) => allowed.has(field));
 
 const validString = (value) => typeof value === 'string' && value.trim().length > 0;
-
 const validOptionalString = (value) => value === undefined || typeof value === 'string';
-
 const validFinite = (value) => typeof value === 'number' && Number.isFinite(value);
 
 const validInteger = (value, minimum, maximum = Number.MAX_SAFE_INTEGER) =>
@@ -130,9 +136,11 @@ const normalizeVersion = (version) => {
 
 const valueOr = (value, fallback) => (value === undefined ? fallback : value);
 
-const nextStatus = (current, incoming) => (current === 'live' ? (incoming ?? current) : current);
+const nextStatus = (current, incoming) =>
+  current === 'live' ? (incoming ?? current) : current;
 
-const sameValue = (first, second) => first === second || (first == null && second == null);
+const sameValue = (first, second) =>
+  first === second || (first == null && second == null);
 
 const parseQueryInteger = (value, fallback, minimum, maximum) => {
   if (value === undefined) return fallback;
@@ -179,7 +187,10 @@ const eventSlots = (event) => {
     };
   });
 
-  if (slots.some((slot) => !slot) || new Set(slots.map((slot) => slot.slot)).size !== 2) {
+  if (
+    slots.some((slot) => !slot) ||
+    new Set(slots.map((slot) => slot.slot)).size !== 2
+  ) {
     return null;
   }
 
@@ -205,7 +216,9 @@ const validRunUpdate = (event) =>
   onlyFields(event, RUN_UPDATE_FIELDS) &&
   (event.status === undefined || STATUSES.has(event.status)) &&
   RUN_UPDATE_VALUES.every(([field, _stored, type]) =>
-    type === 'integer' ? validOptionalInteger(event[field], 0) : validOptionalFinite(event[field])
+    type === 'integer'
+      ? validOptionalInteger(event[field], 0)
+      : validOptionalFinite(event[field])
   );
 
 const runRecord = (id, event) => ({
@@ -296,11 +309,7 @@ const parseMoves = (moves, boardSize) => {
     }
 
     occupied.add(key);
-    parsed.push({
-      x,
-      y,
-      c: color
-    });
+    parsed.push({ x, y, c: color });
   }
 
   return parsed;
@@ -313,7 +322,10 @@ const movesExtend = (currentMoves, nextMoves) => {
   const current = currentMoves.split(';');
   const next = nextMoves.split(';');
 
-  return current.length <= next.length && current.every((move, index) => move === next[index]);
+  return (
+    current.length <= next.length &&
+    current.every((move, index) => move === next[index])
+  );
 };
 
 const lineLength = (board, x, y, color, dx, dy) => {
@@ -325,6 +337,7 @@ const lineLength = (board, x, y, color, dx, dy) => {
       const nextY = y + dy * distance * direction;
 
       if (board.get(`${nextX},${nextY}`) !== color) break;
+
       count += 1;
     }
   }
@@ -394,7 +407,8 @@ const storedResultReason = (game, boardSize) => {
 
   const firstWinner = firstWinningMove(parsed);
 
-  return firstWinner?.color === game.winner_color && firstWinner.index === parsed.length - 1
+  return firstWinner?.color === game.winner_color &&
+    firstWinner.index === parsed.length - 1
     ? 'line'
     : 'adjudication';
 };
@@ -478,7 +492,8 @@ const cursorClause = (sort, order, cursor) => {
     `;
   }
 
-  const field = sort === 'moves' ? (order === 'asc' ? 'min_moves' : 'max_moves') : 'duration';
+  const field =
+    sort === 'moves' ? (order === 'asc' ? 'min_moves' : 'max_moves') : 'duration';
 
   return `
     WHERE (
@@ -495,7 +510,6 @@ const pairResponse = (row) => {
   if (!row) return null;
 
   const { games_json: gamesJson, ...pair } = row;
-
   const games = JSON.parse(gamesJson || '[]').sort((first, second) => {
     const firstSide = first.black_slot === 1 ? 0 : 1;
     const secondSide = second.black_slot === 1 ? 0 : 1;
@@ -614,7 +628,6 @@ const createRoutes = (apiKey) => {
     }
 
     const broadcasts = [];
-
     const apply = db.transaction(() => {
       for (const event of events) {
         if (!isObject(event) || typeof event.type !== 'string') {
@@ -652,7 +665,6 @@ const createRoutes = (apiKey) => {
             type: 'run_start',
             run: repository.getRunById(runId)
           });
-
           continue;
         }
 
@@ -678,7 +690,6 @@ const createRoutes = (apiKey) => {
             type: 'run_update',
             run: repository.getRunById(runId)
           });
-
           continue;
         }
 
@@ -721,7 +732,6 @@ const createRoutes = (apiKey) => {
             white_slot: event.white_slot,
             opening_len: event.op_len ?? 0
           });
-
           const game = repository.getGameDetails(info.lastInsertRowid);
 
           if (!game) {
@@ -733,7 +743,6 @@ const createRoutes = (apiKey) => {
             game,
             pair: currentPair(runId, groupId)
           });
-
           continue;
         }
 
@@ -760,7 +769,9 @@ const createRoutes = (apiKey) => {
             throw new Error('stored game contains invalid moves');
           }
 
-          const occupied = currentMoves.find((move) => move.x === event.x && move.y === event.y);
+          const occupied = currentMoves.find(
+            (move) => move.x === event.x && move.y === event.y
+          );
 
           if (occupied) {
             if (occupied.c === event.c) {
@@ -794,7 +805,6 @@ const createRoutes = (apiKey) => {
             move_count: currentMoves.length + 1,
             pair: currentPair(game.run_id, game.group_id)
           });
-
           continue;
         }
 
@@ -864,7 +874,6 @@ const createRoutes = (apiKey) => {
             duration: game.duration,
             pair: currentPair(game.run_id, game.group_id)
           });
-
           continue;
         }
 
@@ -903,7 +912,6 @@ const createRoutes = (apiKey) => {
     const event = sse.reset();
 
     res.setHeader('X-Arena-Generation', event.generation);
-
     res.json({
       success: true
     });

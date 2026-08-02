@@ -39,7 +39,6 @@ class SSEService {
       seq: ++this.eventSeq,
       generation: getGeneration()
     };
-
     const message = `data: ${JSON.stringify(payload)}\n\n`;
 
     for (const client of this.clients) {
@@ -51,10 +50,7 @@ class SSEService {
 
   reset() {
     this.eventSeq = 0;
-
-    return this.broadcast({
-      type: 'reset'
-    });
+    return this.broadcast({ type: 'reset' });
   }
 
   shutdown() {

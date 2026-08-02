@@ -29,20 +29,10 @@ void GlobalCache::init(int) {
 void GlobalCache::clear() {
     std::unique_lock<std::shared_mutex> lock(mtx_);
 
-    if (
-        table_.size() !=
-        Core::Constants::CACHE_MAX_SIZE
-    ) {
-        table_.assign(
-            Core::Constants::CACHE_MAX_SIZE,
-            Entry{}
-        );
+    if (table_.size() != Core::Constants::CACHE_MAX_SIZE) {
+        table_.assign(Core::Constants::CACHE_MAX_SIZE, Entry{});
     } else {
-        std::fill(
-            table_.begin(),
-            table_.end(),
-            Entry{}
-        );
+        std::fill(table_.begin(), table_.end(), Entry{});
     }
 }
 
@@ -60,40 +50,28 @@ GlobalCache::Key GlobalCache::make_key(
     };
 }
 
-std::optional<Stats::EvalMetrics> GlobalCache::get(
-    const Key& key
-) {
+std::optional<Stats::EvalMetrics> GlobalCache::get(const Key& key) {
     std::shared_lock<std::shared_mutex> lock(mtx_);
 
-    if (table_.empty()) return std::nullopt;
-
-    const Entry& entry = table_[index_for(key)];
-
-    if (!entry.valid || !(entry.key == key)) {
+    if (table_.empty()) {
         return std::nullopt;
     }
 
-    return entry.metrics;
+    const Entry& entry = table_[index_for(key)];
+
+    return entry.valid && entry.key == key
+        ? std::optional<Stats::EvalMetrics>(entry.metrics)
+        : std::nullopt;
 }
 
-void GlobalCache::set(
-    const Key& key,
-    const Stats::EvalMetrics& metrics
-) {
+void GlobalCache::set(const Key& key, const Stats::EvalMetrics& metrics) {
     std::unique_lock<std::shared_mutex> lock(mtx_);
 
     if (table_.empty()) {
-        table_.assign(
-            Core::Constants::CACHE_MAX_SIZE,
-            Entry{}
-        );
+        table_.assign(Core::Constants::CACHE_MAX_SIZE, Entry{});
     }
 
-    table_[index_for(key)] = {
-        key,
-        metrics,
-        true
-    };
+    table_[index_for(key)] = {key, metrics, true};
 }
 
 size_t GlobalCache::index_for(const Key& key) {
@@ -101,19 +79,15 @@ size_t GlobalCache::index_for(const Key& key) {
     hash ^= mix64(key.evaluator + 0x9e3779b97f4a7c15ULL);
     hash ^= mix64(key.max_nodes + 0x3c79ac492ba7b653ULL);
     hash ^= mix64(
-        static_cast<uint64_t>(key.board_size) +
-        0x1c69b3f74ac4ae35ULL
+        static_cast<uint64_t>(key.board_size) + 0x1c69b3f74ac4ae35ULL
     );
 
     return static_cast<size_t>(
-        hash &
-        (Core::Constants::CACHE_MAX_SIZE - 1)
+        hash & (Core::Constants::CACHE_MAX_SIZE - 1)
     );
 }
 
-uint64_t GlobalCache::hash_command(
-    const std::string& command
-) {
+uint64_t GlobalCache::hash_command(const std::string& command) {
     uint64_t hash = 1469598103934665603ULL;
 
     for (unsigned char value : command) {

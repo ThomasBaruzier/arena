@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src",
-    "format": "prettier --write \"src/**/*.{js,jsx}\" \"e2e/**/*.js\" \"eslint.config.js\" \"playwright.config.js\" \"vite.config.js\" \"server.js\" \"package.json\" \".prettierrc\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"e2e/**/*.js\" \"eslint.config.js\" \"playwright.config.js\" \"vite.config.js\" \"server.js\" \"package.json\" \".prettierrc\""
+    "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"e2e/**/*.js\" \"index.html\" \"eslint.config.js\" \"playwright.config.js\" \"vite.config.js\" \"server.js\" \"package.json\" \".prettierrc\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,css}\" \"e2e/**/*.js\" \"index.html\" \"eslint.config.js\" \"playwright.config.js\" \"vite.config.js\" \"server.js\" \"package.json\" \".prettierrc\""
   },
   "dependencies": {
     "express": "^5.2.1",

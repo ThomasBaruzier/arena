@@ -38,7 +38,7 @@ describe('getWinningLine', () => {
     ]);
   });
 
-  it('returns full overlines', () => {
+  it('returns complete overlines', () => {
     const moves = [
       { x: 0, y: 5, c: 2 },
       { x: 1, y: 4, c: 2 },
@@ -61,7 +61,6 @@ describe('getWinningLine', () => {
         1
       )
     ).toEqual([]);
-
     expect(getWinningLine([{ x: 0, y: 0, c: 1 }], 3)).toEqual([]);
     expect(getWinningLine([{ x: 0, y: 0, c: 1 }], 4)).toEqual([]);
   });

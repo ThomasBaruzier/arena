@@ -1,16 +1,27 @@
-import { useCallback, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useLayoutEffect, useReducer, useRef } from 'react';
+
+const STONE_ENTER_MS = 150;
+const STONE_EXIT_MS = 100;
+const LINE_MS = 260;
+const STAGGER_MS = 40;
 
 const sameMove = (first, second) =>
   first?.x === second?.x && first?.y === second?.y && first?.c === second?.c;
 
 const sameLine = (first, second) =>
   first.length === second.length &&
-  first.every((point, index) => point.x === second[index].x && point.y === second[index].y);
+  first.every(
+    (point, index) => point.x === second[index].x && point.y === second[index].y
+  );
 
 const commonPrefix = (first, second) => {
   let index = 0;
 
-  while (index < first.length && index < second.length && sameMove(first[index], second[index])) {
+  while (
+    index < first.length &&
+    index < second.length &&
+    sameMove(first[index], second[index])
+  ) {
     index += 1;
   }
 
@@ -20,182 +31,100 @@ const commonPrefix = (first, second) => {
 const copyMoves = (moves) => moves.map((move) => ({ ...move }));
 const copyLine = (line) => line.map((point) => ({ ...point }));
 
-const initialState = (stones, marker, line) => ({
-  stones,
-  marker,
-  line,
-  markerTarget: null,
-  waitStoneIds: [],
-  clearStoneIds: null,
-  operationToken: null
-});
+const nextEntranceStart = (stones, now) => {
+  let latest = -1;
 
-const promoteMarker = (state) => {
-  if (state.marker || !state.markerTarget || state.waitStoneIds.length > 0) {
-    return state;
+  for (const stone of stones) {
+    if (stone.status === 'entering' && stone.startAt > now) {
+      latest = Math.max(latest, stone.startAt);
+    }
+  }
+
+  return latest < 0 ? now : latest + STAGGER_MS;
+};
+
+const retireLayer = (layer, now, duration) => {
+  if (layer.status === 'exiting') {
+    return layer;
+  }
+
+  if (layer.status === 'entering' && layer.startAt > now) {
+    return null;
   }
 
   return {
-    ...state,
-    marker: state.markerTarget,
-    markerTarget: null
+    ...layer,
+    status: 'exiting',
+    startAt: now,
+    duration
   };
 };
 
 export const visualBoardReducer = (state, action) => {
-  if (action.type === 'REPLACE') {
-    return initialState(action.stones, action.marker, action.line);
-  }
-
-  if (action.type === 'APPEND') {
+  if (action.type === 'SYNC') {
     return {
       stones: action.stones,
-      marker: state.marker
-        ? {
-            ...state.marker,
-            status: 'exiting'
-          }
-        : null,
-      line: action.line,
-      markerTarget: action.markerTarget,
-      waitStoneIds: action.waitStoneIds,
-      clearStoneIds: null,
-      operationToken: action.operationToken
-    };
-  }
-
-  if (action.type === 'REWIND') {
-    return {
-      stones: action.stones,
-      marker: state.marker
-        ? {
-            ...state.marker,
-            status: 'exiting'
-          }
-        : null,
-      line: state.line
-        ? {
-            ...state.line,
-            status: 'exiting'
-          }
-        : null,
-      markerTarget: action.markerTarget,
-      waitStoneIds: action.waitStoneIds,
-      clearStoneIds: null,
-      operationToken: action.operationToken
-    };
-  }
-
-  if (action.type === 'CLEAR') {
-    const stones = state.stones.map((stone) => ({
-      ...stone,
-      status: 'exiting',
-      delay: 0
-    }));
-
-    return {
-      stones,
-      marker: state.marker
-        ? {
-            ...state.marker,
-            status: 'exiting'
-          }
-        : null,
-      line: state.line
-        ? {
-            ...state.line,
-            status: 'exiting'
-          }
-        : null,
-      markerTarget: null,
-      waitStoneIds: [],
-      clearStoneIds: stones.length > 0 ? stones.map((stone) => stone.id) : null,
-      operationToken: action.operationToken
-    };
-  }
-
-  if (action.type === 'SYNC_LINE') {
-    return {
-      ...state,
+      markers: action.markers,
       line: action.line
     };
   }
 
   if (action.type === 'FINISH_STONE') {
-    if (action.status !== 'entering' && action.status !== 'exiting') {
-      return state;
-    }
-
-    if (state.clearStoneIds) {
-      const stone = state.stones.find((current) => current.id === action.id);
-
-      if (
-        action.status !== 'exiting' ||
-        !stone ||
-        stone.status !== action.status ||
-        !state.clearStoneIds.includes(action.id)
-      ) {
-        return state;
-      }
-
-      const remaining = state.clearStoneIds.filter((id) => id !== action.id);
-
-      return {
-        ...state,
-        stones: remaining.length > 0 ? state.stones : [],
-        clearStoneIds: remaining.length > 0 ? remaining : null
-      };
-    }
-
     const stone = state.stones.find((current) => current.id === action.id);
 
     if (!stone || stone.status !== action.status) {
       return state;
     }
 
-    const stones =
-      stone.status === 'exiting'
-        ? state.stones.filter((current) => current.id !== action.id)
-        : state.stones.map((current) =>
-            current.id === action.id
-              ? {
-                  ...current,
-                  status: 'stable',
-                  delay: 0
-                }
-              : current
-          );
-
-    return promoteMarker({
+    return {
       ...state,
-      stones,
-      waitStoneIds: state.waitStoneIds.filter((id) => id !== action.id)
-    });
+      stones:
+        stone.status === 'exiting'
+          ? state.stones.filter((current) => current.id !== action.id)
+          : state.stones.map((current) =>
+              current.id === action.id
+                ? {
+                    ...current,
+                    status: 'stable',
+                    startAt: 0,
+                    duration: 0
+                  }
+                : current
+            )
+    };
   }
 
   if (action.type === 'FINISH_MARKER') {
-    if (!state.marker || state.marker.id !== action.id || state.marker.status !== action.status) {
-      return state;
-    }
+    const marker = state.markers.find((current) => current.id === action.id);
 
-    if (state.marker.status === 'exiting') {
-      return promoteMarker({
-        ...state,
-        marker: null
-      });
+    if (!marker || marker.status !== action.status) {
+      return state;
     }
 
     return {
       ...state,
-      marker: {
-        ...state.marker,
-        status: 'stable'
-      }
+      markers:
+        marker.status === 'exiting'
+          ? state.markers.filter((current) => current.id !== action.id)
+          : state.markers.map((current) =>
+              current.id === action.id
+                ? {
+                    ...current,
+                    status: 'stable',
+                    startAt: 0,
+                    duration: 0
+                  }
+                : current
+            )
     };
   }
 
   if (action.type === 'FINISH_LINE') {
-    if (!state.line || state.line.id !== action.id || state.line.status !== action.status) {
+    if (
+      !state.line ||
+      state.line.id !== action.id ||
+      state.line.status !== action.status
+    ) {
       return state;
     }
 
@@ -206,7 +135,9 @@ export const visualBoardReducer = (state, action) => {
           ? null
           : {
               ...state.line,
-              status: 'stable'
+              status: 'stable',
+              startAt: 0,
+              duration: 0
             }
     };
   }
@@ -214,57 +145,58 @@ export const visualBoardReducer = (state, action) => {
   return state;
 };
 
-export function useVisualBoard({ gameId, moves, winningLine, transition, onTransitionComplete }) {
+export function useVisualBoard({ gameId, moves, winningLine, motion }) {
   const serial = useRef(0);
-  const completeRef = useRef(onTransitionComplete);
-  const completedTokenRef = useRef(null);
-
-  completeRef.current = onTransitionComplete;
 
   const makeStone = useCallback(
-    (move, index, status, delay = 0) => ({
+    (move, index, status, startAt = 0, duration = 0) => ({
       ...move,
       index,
       status,
-      delay,
+      startAt,
+      duration,
       id: `${gameId}:stone:${index}:${++serial.current}`
     }),
     [gameId]
   );
 
   const makeMarker = useCallback(
-    (move, status) =>
+    (move, index, status, startAt = 0, duration = 0) =>
       move
         ? {
             x: move.x,
             y: move.y,
             c: move.c,
+            index,
             status,
-            id: `${gameId}:marker:${++serial.current}`
+            startAt,
+            duration,
+            id: `${gameId}:marker:${index}:${++serial.current}`
           }
         : null,
     [gameId]
   );
 
   const makeLine = useCallback(
-    (points, status) =>
+    (points, status, startAt = 0, duration = 0) =>
       points.length >= 5
         ? {
             points: copyLine(points),
             status,
+            startAt,
+            duration,
             id: `${gameId}:line:${++serial.current}`
           }
         : null,
     [gameId]
   );
 
-  const [visual, dispatch] = useReducer(visualBoardReducer, null, () =>
-    initialState(
-      moves.map((move, index) => makeStone(move, index, 'stable')),
-      makeMarker(moves.at(-1), 'stable'),
-      makeLine(winningLine, 'stable')
-    )
-  );
+  const [visual, dispatch] = useReducer(visualBoardReducer, null, () => ({
+    stones: moves.map((move, index) => makeStone(move, index, 'stable')),
+    markers:
+      moves.length > 0 ? [makeMarker(moves.at(-1), moves.length - 1, 'stable')] : [],
+    line: makeLine(winningLine, 'stable')
+  }));
 
   const visualRef = useRef(visual);
   visualRef.current = visual;
@@ -272,138 +204,193 @@ export function useVisualBoard({ gameId, moves, winningLine, transition, onTrans
   const previous = useRef({
     gameId,
     moves: copyMoves(moves),
-    line: copyLine(winningLine),
-    transitionToken: transition?.token ?? null
+    line: copyLine(winningLine)
   });
-
-  const complete = useCallback((token) => {
-    if (token == null || completedTokenRef.current === token) {
-      return;
-    }
-
-    completedTokenRef.current = token;
-    completeRef.current?.(token);
-  }, []);
 
   useLayoutEffect(() => {
     const prior = previous.current;
     const current = visualRef.current;
     const sameGame = String(prior.gameId) === String(gameId);
-    const token = transition?.token ?? null;
-    const freshToken = token != null && token !== prior.transitionToken;
     const prefix = sameGame ? commonPrefix(prior.moves, moves) : 0;
-    const appended = sameGame && prefix === prior.moves.length && moves.length > prior.moves.length;
-    const removedOne =
-      sameGame && prior.moves.length === moves.length + 1 && prefix === moves.length;
+    const compatible =
+      sameGame && prefix === Math.min(prior.moves.length, moves.length);
+    const movesChanged =
+      !sameGame || prior.moves.length !== moves.length || prefix !== moves.length;
+    const lineChanged = !sameLine(prior.line, winningLine);
 
-    if (!sameGame) {
-      complete(current.operationToken);
+    if (!movesChanged && !lineChanged) {
+      previous.current = {
+        gameId,
+        moves: copyMoves(moves),
+        line: copyLine(winningLine)
+      };
+      return;
+    }
+
+    if (!sameGame || !compatible) {
+      const marker = makeMarker(moves.at(-1), moves.length - 1, 'stable');
 
       dispatch({
-        type: 'REPLACE',
+        type: 'SYNC',
         stones: moves.map((move, index) => makeStone(move, index, 'stable')),
-        marker: makeMarker(moves.at(-1), 'stable'),
+        markers: marker ? [marker] : [],
         line: makeLine(winningLine, 'stable')
       });
-    } else if (freshToken && transition.kind === 'replay') {
-      dispatch({
-        type: 'CLEAR',
-        operationToken: token
-      });
-    } else if (appended) {
-      if (current.operationToken && transition?.kind !== 'next') {
-        complete(current.operationToken);
-      }
 
-      const retained = current.stones.filter(
-        (stone) =>
-          stone.status !== 'exiting' &&
-          stone.index < prior.moves.length &&
-          sameMove(stone, moves[stone.index])
+      previous.current = {
+        gameId,
+        moves: copyMoves(moves),
+        line: copyLine(winningLine)
+      };
+      return;
+    }
+
+    const now = performance.now();
+    const forward = moves.length > prior.moves.length;
+    const backward = moves.length < prior.moves.length;
+    const selected = new Set();
+    const desired = [];
+    let scheduledStart = nextEntranceStart(current.stones, now);
+
+    for (let index = 0; index < moves.length; index += 1) {
+      const existing = current.stones.find(
+        (stone) => stone.index === index && sameMove(stone, moves[index])
       );
 
-      const additions = moves
-        .slice(prior.moves.length)
-        .map((move, offset) =>
-          makeStone(move, prior.moves.length + offset, 'entering', offset * 40)
+      if (existing) {
+        selected.add(existing.id);
+
+        if (existing.status === 'exiting') {
+          desired.push({
+            ...existing,
+            status: 'entering',
+            startAt: scheduledStart,
+            duration: STONE_ENTER_MS
+          });
+          scheduledStart += STAGGER_MS;
+        } else {
+          desired.push(existing);
+        }
+
+        continue;
+      }
+
+      if (forward && index >= prefix) {
+        desired.push(
+          makeStone(moves[index], index, 'entering', scheduledStart, STONE_ENTER_MS)
         );
-
-      const stones = [...retained, ...additions];
-      const waiting = new Set([...current.waitStoneIds, ...additions.map((stone) => stone.id)]);
-
-      dispatch({
-        type: 'APPEND',
-        stones,
-        markerTarget: makeMarker(moves.at(-1), 'entering'),
-        waitStoneIds: stones
-          .filter((stone) => stone.status === 'entering' && waiting.has(stone.id))
-          .map((stone) => stone.id),
-        line: makeLine(winningLine, winningLine.length >= 5 ? 'entering' : 'stable'),
-        operationToken: freshToken && transition.kind === 'next' ? token : null
-      });
-    } else if (removedOne) {
-      if (current.operationToken && transition?.kind !== 'previous') {
-        complete(current.operationToken);
+        scheduledStart += STAGGER_MS;
+      } else {
+        desired.push(makeStone(moves[index], index, 'stable'));
       }
-
-      const removedIndex = prior.moves.length - 1;
-
-      const exiting = current.stones.find((stone) => stone.index === removedIndex);
-
-      dispatch({
-        type: 'REWIND',
-        stones: current.stones
-          .filter((stone) => stone.index <= removedIndex)
-          .map((stone) =>
-            stone.index === removedIndex
-              ? {
-                  ...stone,
-                  status: 'exiting',
-                  delay: 0
-                }
-              : stone
-          ),
-        markerTarget: makeMarker(moves.at(-1), 'entering'),
-        waitStoneIds: exiting ? [exiting.id] : [],
-        operationToken: freshToken && transition.kind === 'previous' ? token : null
-      });
-    } else if (prefix !== moves.length || prior.moves.length !== moves.length) {
-      complete(current.operationToken);
-
-      dispatch({
-        type: 'REPLACE',
-        stones: moves.map((move, index) => makeStone(move, index, 'stable')),
-        marker: makeMarker(moves.at(-1), 'stable'),
-        line: makeLine(winningLine, 'stable')
-      });
-
-      if (freshToken) {
-        complete(token);
-      }
-    } else if (!sameLine(prior.line, winningLine)) {
-      dispatch({
-        type: 'SYNC_LINE',
-        line:
-          winningLine.length >= 5
-            ? makeLine(winningLine, 'entering')
-            : current.line
-              ? {
-                  ...current.line,
-                  status: 'exiting'
-                }
-              : null
-      });
-    } else if (freshToken) {
-      complete(token);
     }
+
+    const leaving = [];
+
+    for (const stone of current.stones) {
+      if (selected.has(stone.id)) {
+        continue;
+      }
+
+      const retired = retireLayer(stone, now, STONE_EXIT_MS);
+
+      if (retired) {
+        leaving.push(retired);
+      }
+    }
+
+    let markers = current.markers;
+
+    if (movesChanged) {
+      const targetIndex = moves.length - 1;
+      const targetMove = moves.at(-1);
+      const finalStone = desired.at(-1);
+      const markerDuration = backward ? STONE_EXIT_MS : STONE_ENTER_MS;
+      const markerStart =
+        forward && finalStone?.status === 'entering' ? finalStone.startAt : now;
+      let targetMarker = null;
+
+      for (let index = current.markers.length - 1; index >= 0; index -= 1) {
+        const marker = current.markers[index];
+
+        if (marker.index === targetIndex && sameMove(marker, targetMove)) {
+          targetMarker = marker;
+          break;
+        }
+      }
+
+      const nextMarkers = [];
+
+      for (const marker of current.markers) {
+        if (targetMarker && marker.id === targetMarker.id) {
+          continue;
+        }
+
+        const retired = retireLayer(marker, now, markerDuration);
+
+        if (retired) {
+          nextMarkers.push(retired);
+        }
+      }
+
+      if (targetMove) {
+        nextMarkers.push(
+          targetMarker
+            ? {
+                ...targetMarker,
+                status: 'entering',
+                startAt: markerStart,
+                duration: markerDuration
+              }
+            : makeMarker(
+                targetMove,
+                targetIndex,
+                'entering',
+                markerStart,
+                markerDuration
+              )
+        );
+      }
+
+      markers = nextMarkers;
+    }
+
+    let line = current.line;
+    const finalStone = desired.at(-1);
+    const lineStart =
+      forward && finalStone?.status === 'entering' ? finalStone.startAt : now;
+
+    if (winningLine.length >= 5) {
+      if (current.line && sameLine(current.line.points, winningLine)) {
+        line =
+          current.line.status === 'exiting'
+            ? {
+                ...current.line,
+                status: 'entering',
+                startAt: lineStart,
+                duration: LINE_MS
+              }
+            : current.line;
+      } else {
+        line = makeLine(winningLine, 'entering', lineStart, LINE_MS);
+      }
+    } else if (current.line) {
+      line = retireLayer(current.line, now, LINE_MS);
+    }
+
+    dispatch({
+      type: 'SYNC',
+      stones: [...desired, ...leaving],
+      markers,
+      line
+    });
 
     previous.current = {
       gameId,
       moves: copyMoves(moves),
-      line: copyLine(winningLine),
-      transitionToken: token
+      line: copyLine(winningLine)
     };
-  }, [gameId, moves, winningLine, transition, makeStone, makeMarker, makeLine, complete]);
+  }, [gameId, moves, winningLine, motion, makeStone, makeMarker, makeLine]);
 
   const finishStone = useCallback((id, status) => {
     dispatch({
@@ -429,26 +416,8 @@ export function useVisualBoard({ gameId, moves, winningLine, transition, onTrans
     });
   }, []);
 
-  const transitioning = useMemo(
-    () =>
-      visual.clearStoneIds !== null ||
-      visual.waitStoneIds.length > 0 ||
-      visual.markerTarget !== null ||
-      visual.stones.some((stone) => stone.status !== 'stable') ||
-      (visual.marker !== null && visual.marker.status !== 'stable') ||
-      (visual.line !== null && visual.line.status !== 'stable'),
-    [visual]
-  );
-
-  useLayoutEffect(() => {
-    if (visual.operationToken != null && !transitioning) {
-      complete(visual.operationToken);
-    }
-  }, [visual.operationToken, transitioning, complete]);
-
   return {
     ...visual,
-    transitioning,
     finishStone,
     finishMarker,
     finishLine

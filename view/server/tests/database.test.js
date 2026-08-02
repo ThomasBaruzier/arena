@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { close, getDb, getGeneration, init as initDb, reset as resetDb } from '../src/db.js';
+import {
+  close,
+  getDb,
+  getGeneration,
+  init as initDb,
+  reset as resetDb
+} from '../src/db.js';
 import * as repository from '../src/repository.js';
 
 const run = (id, analysisEnabled = false) => ({

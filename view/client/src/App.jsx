@@ -15,10 +15,11 @@ const API_BASE = '/api';
 const pathGameId = () => {
   const match = window.location.pathname.match(/^\/(\d+)\/?$/);
 
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   const id = Number(match[1]);
-
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 
@@ -30,19 +31,16 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1000);
   const [initializing, setInitializing] = useState(true);
   const [httpGeneration, setHttpGeneration] = useState(null);
-  const [boardTransitioning, setBoardTransitioning] = useState(false);
 
   const loadRef = useRef({
     id: 0,
     abort: null,
     selectedId: null
   });
-
   const latestRef = useRef({
     id: 0,
     abort: null
   });
-
   const selectedRef = useRef(null);
   const gameRef = useRef(null);
   const playingRef = useRef(false);
@@ -52,12 +50,13 @@ export default function App() {
   const matchupSentinel = useRef(null);
   const menuButtonRef = useRef(null);
 
-  const { subscribe, generation, connectionEpoch } = useEventSource(`${API_BASE}/events`);
+  const { subscribe, generation, connectionEpoch } = useEventSource(
+    `${API_BASE}/events`
+  );
 
   sseGenerationRef.current = generation;
 
   const viewerGeneration = generation ?? httpGeneration;
-
   const {
     matchups,
     matchupsLoading,
@@ -67,7 +66,6 @@ export default function App() {
     runsLoading,
     refreshRuns
   } = useData(subscribe);
-
   const {
     request: requestTournament,
     prepared: prepareTournament,
@@ -78,13 +76,16 @@ export default function App() {
     tokenFor: tournamentToken
   } = useTournamentAccordion();
 
-  const parsedMoves = useMemo(() => (game?.moves ? parseMoves(game.moves) : []), [game?.moves]);
-
+  const parsedMoves = useMemo(
+    () => (game?.moves ? parseMoves(game.moves) : []),
+    [game?.moves]
+  );
   const playback = useGamePlayback(parsedMoves.length);
-
-  const { isPlaying, setIsPlaying, setMoveIndex, cancelTransition, completeTransition } = playback;
-
-  const runsById = useMemo(() => new Map(runs.map((run) => [String(run.id), run])), [runs]);
+  const { isPlaying, setIsPlaying, setMoveIndex } = playback;
+  const runsById = useMemo(
+    () => new Map(runs.map((run) => [String(run.id), run])),
+    [runs]
+  );
 
   selectedRef.current = selectedId;
   loadRef.current.selectedId = selectedId;
@@ -96,7 +97,6 @@ export default function App() {
 
   const closeSidebar = useCallback(() => {
     setSidebarOpen(false);
-
     window.requestAnimationFrame(() => menuButtonRef.current?.focus());
   }, []);
 
@@ -115,7 +115,6 @@ export default function App() {
     };
 
     document.addEventListener('keydown', handleKeyDown);
-
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [sidebarOpen, closeSidebar]);
 
@@ -139,16 +138,14 @@ export default function App() {
         }
       }
 
-      if (!sameGame) {
-        cancelTransition();
-        setBoardTransitioning(false);
-      }
-
       gameRef.current = data;
       setGame(data);
 
-      if (stopPlayback || !sameGame || (!playingRef.current && incomingCount > currentCount)) {
-        cancelTransition();
+      if (
+        stopPlayback ||
+        !sameGame ||
+        (!playingRef.current && incomingCount > currentCount)
+      ) {
         setMoveIndex(incomingCount);
       }
 
@@ -157,7 +154,7 @@ export default function App() {
         setIsPlaying(false);
       }
     },
-    [cancelTransition, setMoveIndex, setIsPlaying]
+    [setMoveIndex, setIsPlaying]
   );
 
   const clearGameSelection = useCallback(() => {
@@ -165,19 +162,18 @@ export default function App() {
     loadRef.current.abort = null;
     loadRef.current.id += 1;
     loadRef.current.selectedId = null;
+
     selectedRef.current = null;
     gameRef.current = null;
     playingRef.current = false;
 
-    cancelTransition();
     setSelectedId(null);
     setGame(null);
     setIsPlaying(false);
     setMoveIndex(0);
-    setBoardTransitioning(false);
 
     window.history.replaceState(null, '', '/');
-  }, [cancelTransition, setIsPlaying, setMoveIndex]);
+  }, [setIsPlaying, setMoveIndex]);
 
   const resetViewer = useCallback(
     (nextGeneration = null) => {
@@ -187,7 +183,6 @@ export default function App() {
       }
 
       awaitingRecoveryRef.current = true;
-
       clearGameSelection();
       resetTournaments();
     },
@@ -196,20 +191,17 @@ export default function App() {
 
   const selectGame = useCallback(
     (id, { closeControls = true } = {}) => {
-      cancelTransition();
       selectedRef.current = id;
       loadRef.current.selectedId = id;
 
       setSelectedId(id);
-      setBoardTransitioning(false);
-
       window.history.replaceState(null, '', gamePath(id));
 
       if (closeControls && window.innerWidth <= 1000) {
         closeSidebar();
       }
     },
-    [cancelTransition, closeSidebar]
+    [closeSidebar]
   );
 
   const fetchGame = useCallback(
@@ -220,9 +212,7 @@ export default function App() {
         }
 
         const error = new Error('game request failed');
-
         error.status = response.status;
-
         throw error;
       }),
     []
@@ -246,14 +236,22 @@ export default function App() {
 
         const data = await response.json();
 
-        if (!data || (data.id !== null && (!Number.isSafeInteger(data.id) || data.id < 1))) {
+        if (
+          !data ||
+          (data.id !== null && (!Number.isSafeInteger(data.id) || data.id < 1))
+        ) {
           throw new Error('invalid latest game response');
         }
 
-        const responseGeneration = response.headers?.get?.('x-arena-generation') || null;
+        const responseGeneration =
+          response.headers?.get?.('x-arena-generation') || null;
         const currentGeneration = sseGenerationRef.current;
 
-        if (responseGeneration && currentGeneration && responseGeneration !== currentGeneration) {
+        if (
+          responseGeneration &&
+          currentGeneration &&
+          responseGeneration !== currentGeneration
+        ) {
           throw new Error('stale latest game response');
         }
 
@@ -265,8 +263,7 @@ export default function App() {
           setHttpGeneration(responseGeneration);
         }
 
-        const requested = pathGameId();
-        const id = requested ?? data.id;
+        const id = pathGameId() ?? data.id;
 
         if (id) {
           selectGame(id, {
@@ -288,9 +285,7 @@ export default function App() {
         }
       });
 
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [clearGameSelection, selectGame]);
 
   useEffect(() => {
@@ -353,9 +348,7 @@ export default function App() {
       window.history.replaceState(null, '', gamePath(selectedId));
     }
 
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [selectedId, initializing, fetchGame, applyLoadedGame, clearGameSelection]);
 
   useEffect(
@@ -382,12 +375,10 @@ export default function App() {
           gameRef.current = recovered;
           playingRef.current = false;
 
-          cancelTransition();
           setSelectedId(recovered.id);
           setGame(recovered);
           setIsPlaying(false);
           setMoveIndex(recoveredCount);
-          setBoardTransitioning(false);
 
           window.history.replaceState(null, '', gamePath(recovered.id));
         }
@@ -441,7 +432,6 @@ export default function App() {
           setGame(next);
 
           if (!playingRef.current && incomingCount > currentCount) {
-            cancelTransition();
             setMoveIndex(incomingCount);
           }
 
@@ -451,7 +441,6 @@ export default function App() {
         if (event.type === 'game_result') {
           const current = gameRef.current;
           const currentCount = parseMoves(current?.moves).length;
-
           const next = {
             ...current,
             group_id: event.group_id ?? current?.group_id,
@@ -460,19 +449,17 @@ export default function App() {
             moves: event.moves ?? current?.moves ?? '',
             duration: event.duration ?? current?.duration
           };
-
           const nextCount = parseMoves(next.moves).length;
 
           gameRef.current = next;
           setGame(next);
 
           if (!playingRef.current && nextCount > currentCount) {
-            cancelTransition();
             setMoveIndex(nextCount);
           }
         }
       }),
-    [subscribe, resetViewer, cancelTransition, setIsPlaying, setMoveIndex]
+    [subscribe, resetViewer, setIsPlaying, setMoveIndex]
   );
 
   useEffect(() => {
@@ -496,7 +483,6 @@ export default function App() {
     );
 
     observer.observe(matchupSentinel.current);
-
     return () => observer.disconnect();
   }, [matchupsLoading, matchupsHasMore, loadMoreMatchups]);
 
@@ -510,7 +496,9 @@ export default function App() {
 
     const selected = selectedRef.current;
 
-    if (!selected) return;
+    if (!selected) {
+      return;
+    }
 
     fetchGame(selected)
       .then((data) => {
@@ -649,17 +637,11 @@ export default function App() {
                 parsedMoves={parsedMoves}
                 moveIndex={playback.moveIndex}
                 winnerColor={game.winner_color}
-                transition={playback.transition}
+                motion={playback.motion}
                 boardSize={game.board_size}
-                onTransitionChange={setBoardTransitioning}
-                onTransitionComplete={completeTransition}
               />
 
-              <ControlDeck
-                {...playback}
-                totalMoves={parsedMoves.length}
-                visualTransitioning={boardTransitioning}
-              />
+              <ControlDeck {...playback} totalMoves={parsedMoves.length} />
             </>
           ) : (
             <div className="empty-stage">

@@ -1,241 +1,195 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVisualBoard, visualBoardReducer } from './useVisualBoard';
 
-const move = (x, y, c) => ({
-  x,
-  y,
-  c
-});
+const move = (x, y, c) => ({ x, y, c });
 
-const transitionState = () => ({
+const line = [
+  { x: 0, y: 0 },
+  { x: 1, y: 0 },
+  { x: 2, y: 0 },
+  { x: 3, y: 0 },
+  { x: 4, y: 0 }
+];
+
+const state = () => ({
   stones: [
     {
-      id: 'stone',
-      status: 'entering'
+      id: 'stone-in',
+      status: 'entering',
+      startAt: 1000,
+      duration: 150
+    },
+    {
+      id: 'stone-out',
+      status: 'exiting',
+      startAt: 1000,
+      duration: 100
     }
   ],
-  marker: {
-    id: 'old',
-    status: 'exiting'
-  },
-  line: null,
-  markerTarget: {
-    id: 'next',
-    status: 'entering'
-  },
-  waitStoneIds: ['stone'],
-  clearStoneIds: null,
-  operationToken: 1
+  markers: [
+    {
+      id: 'marker-in',
+      status: 'entering',
+      startAt: 1000,
+      duration: 150
+    },
+    {
+      id: 'marker-out',
+      status: 'exiting',
+      startAt: 1000,
+      duration: 100
+    }
+  ],
+  line: {
+    id: 'line',
+    status: 'entering',
+    startAt: 1000,
+    duration: 260
+  }
 });
 
 describe('visualBoardReducer', () => {
-  it('waits for marker and every required stone in either order', () => {
-    const stoneDone = visualBoardReducer(transitionState(), {
+  it('settles only the matching entering stone', () => {
+    const current = state();
+    const next = visualBoardReducer(current, {
       type: 'FINISH_STONE',
-      id: 'stone',
+      id: 'stone-in',
       status: 'entering'
     });
 
-    expect(stoneDone.marker.id).toBe('old');
+    expect(next.stones[0]).toMatchObject({
+      id: 'stone-in',
+      status: 'stable',
+      startAt: 0,
+      duration: 0
+    });
+    expect(next.stones[1]).toBe(current.stones[1]);
+  });
 
-    expect(
-      visualBoardReducer(stoneDone, {
-        type: 'FINISH_MARKER',
-        id: 'old',
-        status: 'exiting'
-      }).marker
-    ).toEqual({
-      id: 'next',
-      status: 'entering'
+  it('removes only matching exiting layers', () => {
+    const stone = visualBoardReducer(state(), {
+      type: 'FINISH_STONE',
+      id: 'stone-out',
+      status: 'exiting'
     });
 
-    const markerDone = visualBoardReducer(transitionState(), {
+    expect(stone.stones.map((current) => current.id)).toEqual(['stone-in']);
+
+    const marker = visualBoardReducer(stone, {
       type: 'FINISH_MARKER',
-      id: 'old',
+      id: 'marker-out',
       status: 'exiting'
     });
 
-    expect(markerDone.marker).toBeNull();
-
-    expect(
-      visualBoardReducer(markerDone, {
-        type: 'FINISH_STONE',
-        id: 'stone',
-        status: 'entering'
-      }).marker
-    ).toEqual({
-      id: 'next',
-      status: 'entering'
-    });
+    expect(marker.markers.map((current) => current.id)).toEqual(['marker-in']);
   });
 
-  it('ignores stale completion phases', () => {
-    const state = transitionState();
+  it('ignores stale completion', () => {
+    const current = state();
 
     expect(
-      visualBoardReducer(state, {
+      visualBoardReducer(current, {
         type: 'FINISH_STONE',
-        id: 'stone',
+        id: 'stone-in',
         status: 'exiting'
       })
-    ).toBe(state);
+    ).toBe(current);
 
     expect(
-      visualBoardReducer(state, {
+      visualBoardReducer(current, {
         type: 'FINISH_MARKER',
-        id: 'old',
+        id: 'marker-out',
         status: 'entering'
       })
-    ).toBe(state);
+    ).toBe(current);
+
+    expect(
+      visualBoardReducer(current, {
+        type: 'FINISH_LINE',
+        id: 'missing',
+        status: 'entering'
+      })
+    ).toBe(current);
   });
 
-  it('waits for every Replay stone', () => {
-    const clearing = visualBoardReducer(
-      {
-        stones: [
-          {
-            id: 'a',
-            status: 'stable'
-          },
-          {
-            id: 'b',
-            status: 'stable'
-          }
-        ],
-        marker: null,
-        line: null,
-        markerTarget: null,
-        waitStoneIds: [],
-        clearStoneIds: null,
-        operationToken: null
-      },
-      {
-        type: 'CLEAR',
-        operationToken: 1
+  it('settles and removes the winning line', () => {
+    const settled = visualBoardReducer(state(), {
+      type: 'FINISH_LINE',
+      id: 'line',
+      status: 'entering'
+    });
+
+    expect(settled.line).toMatchObject({
+      id: 'line',
+      status: 'stable',
+      startAt: 0,
+      duration: 0
+    });
+
+    const exiting = {
+      ...settled,
+      line: {
+        ...settled.line,
+        status: 'exiting',
+        duration: 260
       }
-    );
+    };
 
-    const first = visualBoardReducer(clearing, {
-      type: 'FINISH_STONE',
-      id: 'a',
-      status: 'exiting'
-    });
-
-    expect(first.stones).toHaveLength(2);
-
-    const complete = visualBoardReducer(first, {
-      type: 'FINISH_STONE',
-      id: 'b',
-      status: 'exiting'
-    });
-
-    expect(complete.stones).toEqual([]);
-    expect(complete.clearStoneIds).toBeNull();
+    expect(
+      visualBoardReducer(exiting, {
+        type: 'FINISH_LINE',
+        id: 'line',
+        status: 'exiting'
+      }).line
+    ).toBeNull();
   });
 });
 
 describe('useVisualBoard', () => {
-  it('completes a tokenized Replay after every visual layer settles', () => {
+  beforeEach(() => {
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders an initial position as stable', () => {
     const moves = [move(1, 1, 1), move(2, 2, 2)];
-    const complete = vi.fn();
-
-    const { result, rerender } = renderHook(
-      ({ moves, transition }) =>
-        useVisualBoard({
-          gameId: 1,
-          moves,
-          winningLine: [],
-          transition,
-          onTransitionComplete: complete
-        }),
-      {
-        initialProps: {
-          moves,
-          transition: null
-        }
-      }
+    const { result } = renderHook(() =>
+      useVisualBoard({
+        gameId: 1,
+        moves,
+        winningLine: [],
+        motion: null
+      })
     );
 
-    rerender({
-      moves: [],
-      transition: {
-        token: 1,
-        kind: 'replay'
-      }
-    });
-
-    expect(result.current.transitioning).toBe(true);
-
-    for (const stone of result.current.stones) {
-      act(() => {
-        result.current.finishStone(stone.id, 'exiting');
-      });
-    }
-
-    if (result.current.marker) {
-      act(() => {
-        result.current.finishMarker(result.current.marker.id, 'exiting');
-      });
-    }
-
-    expect(complete).toHaveBeenCalledWith(1);
-  });
-
-  it('completes a superseded token on game replacement', () => {
-    const complete = vi.fn();
-
-    const { rerender } = renderHook(
-      ({ gameId, moves, transition }) =>
-        useVisualBoard({
-          gameId,
-          moves,
-          winningLine: [],
-          transition,
-          onTransitionComplete: complete
-        }),
-      {
-        initialProps: {
-          gameId: 1,
-          moves: [move(1, 1, 1), move(2, 2, 2)],
-          transition: null
-        }
-      }
+    expect(result.current.stones.every((stone) => stone.status === 'stable')).toBe(
+      true
     );
-
-    rerender({
-      gameId: 1,
-      moves: [move(1, 1, 1)],
-      transition: {
-        token: 1,
-        kind: 'previous'
-      }
-    });
-
-    rerender({
-      gameId: 2,
-      moves: [],
-      transition: null
-    });
-
-    expect(complete).toHaveBeenCalledWith(1);
+    expect(result.current.markers).toEqual([
+      expect.objectContaining({
+        x: 2,
+        y: 2,
+        status: 'stable'
+      })
+    ]);
   });
 
-  it('waits for every appended stone before moving the marker', () => {
+  it('schedules a batched append and marker together', () => {
     const first = [move(1, 1, 1)];
-
     const { result, rerender } = renderHook(
       ({ moves }) =>
         useVisualBoard({
           gameId: 1,
           moves,
           winningLine: [],
-          transition: null
+          motion: null
         }),
       {
-        initialProps: {
-          moves: first
-        }
+        initialProps: { moves: first }
       }
     );
 
@@ -243,23 +197,153 @@ describe('useVisualBoard', () => {
       moves: [...first, move(2, 2, 2), move(3, 3, 1)]
     });
 
-    const additions = result.current.stones.slice(-2);
-    const oldMarker = result.current.marker;
+    const additions = result.current.stones.filter(
+      (stone) => stone.status === 'entering'
+    );
 
-    act(() => {
-      result.current.finishMarker(oldMarker.id, 'exiting');
-      result.current.finishStone(additions[1].id, 'entering');
+    expect(additions.map((stone) => stone.startAt)).toEqual([1000, 1040]);
+    expect(result.current.markers.find((marker) => marker.x === 3)).toMatchObject({
+      status: 'entering',
+      startAt: 1040,
+      duration: 150
+    });
+  });
+
+  it('crossfades markers while stepping backward', () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2)];
+    const { result, rerender } = renderHook(
+      ({ moves }) =>
+        useVisualBoard({
+          gameId: 1,
+          moves,
+          winningLine: [],
+          motion: null
+        }),
+      {
+        initialProps: { moves }
+      }
+    );
+
+    rerender({
+      moves: moves.slice(0, 1)
     });
 
-    expect(result.current.marker).toBeNull();
+    expect(result.current.stones.find((stone) => stone.index === 1)).toMatchObject({
+      status: 'exiting',
+      startAt: 1000,
+      duration: 100
+    });
+    expect(result.current.markers.find((marker) => marker.index === 1)).toMatchObject({
+      status: 'exiting',
+      duration: 100
+    });
+    expect(result.current.markers.find((marker) => marker.index === 0)).toMatchObject({
+      status: 'entering',
+      startAt: 1000,
+      duration: 100
+    });
+  });
 
-    act(() => {
-      result.current.finishStone(additions[0].id, 'entering');
+  it('reverses Replay when the first move is requested again', () => {
+    const moves = [move(1, 1, 1), move(2, 2, 2)];
+    const { result, rerender } = renderHook(
+      ({ moves, motion }) =>
+        useVisualBoard({
+          gameId: 1,
+          moves,
+          winningLine: [],
+          motion
+        }),
+      {
+        initialProps: {
+          moves,
+          motion: null
+        }
+      }
+    );
+
+    rerender({
+      moves: [],
+      motion: {
+        token: 1,
+        kind: 'replay'
+      }
     });
 
-    expect(result.current.marker).toMatchObject({
-      x: 3,
-      y: 3,
+    const first = result.current.stones.find((stone) => stone.index === 0);
+
+    expect(first.status).toBe('exiting');
+
+    rerender({
+      moves: moves.slice(0, 1),
+      motion: {
+        token: 2,
+        kind: 'next'
+      }
+    });
+
+    expect(result.current.stones.find((stone) => stone.index === 0)).toMatchObject({
+      id: first.id,
+      status: 'entering',
+      startAt: 1000,
+      duration: 150
+    });
+  });
+
+  it('reverses the same winning line identity', () => {
+    const final = [
+      move(0, 0, 1),
+      move(0, 1, 2),
+      move(1, 0, 1),
+      move(1, 1, 2),
+      move(2, 0, 1),
+      move(2, 1, 2),
+      move(3, 0, 1),
+      move(3, 1, 2),
+      move(4, 0, 1)
+    ];
+    const { result, rerender } = renderHook(
+      ({ moves, winningLine }) =>
+        useVisualBoard({
+          gameId: 1,
+          moves,
+          winningLine,
+          motion: null
+        }),
+      {
+        initialProps: {
+          moves: final,
+          winningLine: line
+        }
+      }
+    );
+
+    rerender({
+      moves: final.slice(0, -1),
+      winningLine: []
+    });
+
+    const exiting = result.current.line;
+
+    expect(exiting.status).toBe('exiting');
+
+    rerender({
+      moves: final,
+      winningLine: line
+    });
+
+    expect(result.current.line).toMatchObject({
+      id: exiting.id,
+      status: 'entering',
+      duration: 260
+    });
+
+    act(() => {
+      result.current.finishLine(exiting.id, 'exiting');
+    });
+
+    expect(result.current.line).toMatchObject({
+      id: exiting.id,
       status: 'entering'
     });
   });

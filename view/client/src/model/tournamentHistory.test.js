@@ -37,7 +37,6 @@ const pair = (
   } = {}
 ) => {
   const groupId = `run_${id}`;
-
   const games = [
     game(id, groupId, blackSlot, {
       move_count: moves,
@@ -73,7 +72,6 @@ const pair = (
 describe('tournament history model', () => {
   it('projects the lean pair contract', () => {
     const normalized = normalizePair(pair(1));
-
     expect(normalized.games[0]).not.toHaveProperty('moves');
   });
 
@@ -102,7 +100,6 @@ describe('tournament history model', () => {
         winner: 1
       })
     );
-
     const stale = normalizePair(
       pair(1, {
         moves: 4,
@@ -113,9 +110,7 @@ describe('tournament history model', () => {
 
     stale.games[0].external_id = 'conflicting';
 
-    const merged = mergePair(newer, stale);
-
-    expect(merged.games[0]).toMatchObject({
+    expect(mergePair(newer, stale).games[0]).toMatchObject({
       external_id: 'run_1_0',
       winner_color: 1,
       move_count: 12,
@@ -140,27 +135,17 @@ describe('tournament history model', () => {
       asc: true
     });
 
-    expect(() => nextHistorySort(DEFAULT_HISTORY_SORT, 'side')).toThrow('Invalid history sort');
+    expect(() => nextHistorySort(DEFAULT_HISTORY_SORT, 'side')).toThrow(
+      'Invalid history sort'
+    );
   });
 
   it('sorts with server-compatible tie breakers', () => {
     const values = new Map(
       [
-        normalizePair(
-          pair(8, {
-            moves: 3
-          })
-        ),
-        normalizePair(
-          pair(9, {
-            moves: 3
-          })
-        ),
-        normalizePair(
-          pair(7, {
-            moves: 2
-          })
-        )
+        normalizePair(pair(8, { moves: 3 })),
+        normalizePair(pair(9, { moves: 3 })),
+        normalizePair(pair(7, { moves: 2 }))
       ].map((current) => [current.group_id, current])
     );
 
@@ -172,7 +157,7 @@ describe('tournament history model', () => {
     ).toEqual([7, 9, 8]);
   });
 
-  it('creates result cursor boundaries from actual games', () => {
+  it('creates result cursor boundaries from pair values', () => {
     const value = normalizePair(
       pair(20, {
         moves: 4,
@@ -211,7 +196,6 @@ describe('tournament history model', () => {
         winner: 1
       })
     );
-
     const stale = normalizePair(
       pair(1, {
         moves: 3,
@@ -219,7 +203,6 @@ describe('tournament history model', () => {
         winner: 0
       })
     );
-
     const state = tournamentHistoryReducer(new Map(), {
       type: 'SET',
       pairs: [current],
@@ -233,15 +216,10 @@ describe('tournament history model', () => {
     });
   });
 
-  it('retains fetched pairs when a streamed pair enters the visible range', () => {
+  it('retains fetched pairs when a stream displaces the visible boundary', () => {
     let state = tournamentHistoryReducer(new Map(), {
       type: 'SET',
-      pairs: Array.from(
-        {
-          length: 50
-        },
-        (_, index) => normalizePair(pair(100 - index))
-      ),
+      pairs: Array.from({ length: 50 }, (_, index) => normalizePair(pair(100 - index))),
       buffered: []
     });
 
@@ -252,7 +230,7 @@ describe('tournament history model', () => {
 
     const visible = sortedHistoryPairs(state, DEFAULT_HISTORY_SORT).slice(0, 50);
 
-    expect(state).toHaveLength(51);
+    expect(state.size).toBe(51);
     expect(state.has('run_1000')).toBe(true);
     expect(state.has('run_51')).toBe(true);
     expect(visible[0].max_id).toBe(1000);

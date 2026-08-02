@@ -13,10 +13,11 @@ export function useEventSource(url) {
     let mounted = true;
 
     const connect = () => {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       clearTimeout(reconnectTimer.current);
-
       source.current?.close();
       setIsConnected(false);
 
@@ -65,7 +66,6 @@ export function useEventSource(url) {
 
         setIsConnected(false);
         eventSource.close();
-
         reconnectTimer.current = setTimeout(connect, 2000);
       };
     };
@@ -74,9 +74,7 @@ export function useEventSource(url) {
 
     return () => {
       mounted = false;
-
       clearTimeout(reconnectTimer.current);
-
       source.current?.close();
       source.current = null;
     };
@@ -84,7 +82,6 @@ export function useEventSource(url) {
 
   const subscribe = useCallback((listener) => {
     listeners.current.add(listener);
-
     return () => listeners.current.delete(listener);
   }, []);
 

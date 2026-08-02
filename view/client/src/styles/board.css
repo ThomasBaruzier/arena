@@ -18,11 +18,7 @@
 }
 
 .board-wrapper {
-  width:
-    min(
-      calc(100% - 40px),
-      76vh
-    );
+  width: min(calc(100% - 40px), 76vh);
   margin-bottom: 76px;
   aspect-ratio: 1;
 }
@@ -39,20 +35,12 @@
       rgba(110, 64, 28, 0.04) 58%,
       transparent 82%
     ),
-    linear-gradient(
-      180deg,
-      var(--wood-light),
-      var(--wood)
-    );
-  border:
-    1px solid
-    var(--wood-border);
+    linear-gradient(180deg, var(--wood-light), var(--wood));
+  border: 1px solid var(--wood-border);
   border-radius: 7px;
   box-shadow:
-    0 28px 58px
-    rgba(0, 0, 0, 0.42),
-    0 5px 15px
-    rgba(0, 0, 0, 0.25);
+    0 28px 58px rgba(0, 0, 0, 0.42),
+    0 5px 15px rgba(0, 0, 0, 0.25);
 }
 
 .board-grid {
@@ -99,73 +87,48 @@
   border-radius: 50%;
   opacity: 1;
   transform: scale(0.89);
+  transition-property: opacity, transform;
+  transition-duration: var(--stone-duration);
+  transition-delay: var(--stone-delay);
+  transition-timing-function: cubic-bezier(0.2, 0.75, 0.3, 1);
   z-index: 10;
 }
 
 .stone-layer.black {
-  background:
-    radial-gradient(
-      circle at 30% 30%,
-      #505050,
-      #030303 68%
-    );
+  background: radial-gradient(circle at 30% 30%, #505050, #030303 68%);
   box-shadow:
-    1px 3px 4px
-    rgba(0, 0, 0, 0.48),
-    inset -1px -2px 3px
-    rgba(0, 0, 0, 0.46);
+    1px 3px 4px rgba(0, 0, 0, 0.48),
+    inset -1px -2px 3px rgba(0, 0, 0, 0.46);
 }
 
 .stone-layer.white {
-  background:
-    radial-gradient(
-      circle at 30% 30%,
-      #fff,
-      #d8d8d8 70%
-    );
+  background: radial-gradient(circle at 30% 30%, #fff, #d8d8d8 70%);
   box-shadow:
-    1px 3px 4px
-    rgba(0, 0, 0, 0.34),
-    inset -1px -2px 3px
-    rgba(0, 0, 0, 0.12);
+    1px 3px 4px rgba(0, 0, 0, 0.34),
+    inset -1px -2px 3px rgba(0, 0, 0, 0.12);
 }
 
-.stone-layer.entering {
-  opacity: 0;
-  transform:
-    translateY(-5%)
-    scale(0.72);
-  animation:
-    arena-stone-enter
-    150ms
-    cubic-bezier(
-      0.2,
-      0.75,
-      0.3,
-      1
-    )
-    var(--stone-delay)
-    both;
+.stone-layer.stable {
+  transition-duration: 0ms;
+  transition-delay: 0ms;
 }
 
 .stone-layer.exiting {
-  animation:
-    arena-stone-exit
-    100ms
-    cubic-bezier(
-      0.7,
-      0,
-      0.8,
-      0.25
-    )
-    both;
+  opacity: 0;
+  transform: translateY(-5%) scale(0.72);
+  transition-timing-function: cubic-bezier(0.7, 0, 0.8, 0.25);
 }
 
 .move-marker {
   position: absolute;
+  opacity: 0.86;
   display: grid;
   place-items: center;
   pointer-events: none;
+  transition-property: opacity;
+  transition-duration: var(--marker-duration);
+  transition-delay: var(--marker-delay);
+  transition-timing-function: cubic-bezier(0.2, 0.75, 0.3, 1);
   z-index: 22;
 }
 
@@ -177,30 +140,21 @@
 }
 
 .move-marker.on-black::before {
-  background:
-    rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .move-marker.on-white::before {
-  background:
-    rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.72);
 }
 
-.move-marker.entering {
-  opacity: 0;
-  animation:
-    arena-marker-enter
-    70ms
-    ease-out
-    both;
+.move-marker.stable {
+  transition-duration: 0ms;
+  transition-delay: 0ms;
 }
 
 .move-marker.exiting {
-  animation:
-    arena-marker-exit
-    70ms
-    ease-in
-    both;
+  opacity: 0;
+  transition-timing-function: cubic-bezier(0.7, 0, 0.8, 0.25);
 }
 
 .board-overlay {
@@ -219,41 +173,50 @@
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
   opacity: 0.86;
+  transition-property: stroke-dashoffset, opacity;
+  transition-duration: var(--line-duration);
+  transition-delay: var(--line-delay);
+  transition-timing-function: ease-out;
 }
 
-.win-line-svg.entering {
-  animation:
-    arena-line-enter
-    260ms
-    ease-out
-    both;
+.win-line-svg.stable {
+  transition-duration: 0ms;
+  transition-delay: 0ms;
 }
 
 .win-line-svg.exiting {
-  animation:
-    arena-line-exit
-    260ms
-    ease-in
-    both;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  transition-timing-function: ease-in;
+}
+
+@starting-style {
+  .stone-layer.entering {
+    opacity: 0;
+    transform: translateY(-5%) scale(0.72);
+  }
+
+  .move-marker.entering {
+    opacity: 0;
+  }
+
+  .win-line-svg.entering {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
 }
 
 .control-deck {
   width: max-content;
-  max-width:
-    calc(100% - 24px);
+  max-width: calc(100% - 24px);
   min-height: 52px;
   position: absolute;
   bottom: 24px;
   padding: 6px 16px;
-  background:
-    rgba(24, 24, 27, 0.96);
-  border:
-    1px solid
-    var(--border);
+  background: rgba(24, 24, 27, 0.96);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  box-shadow:
-    0 12px 32px
-    rgba(0, 0, 0, 0.34);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -310,8 +273,7 @@
 .speed button {
   width: auto;
   padding: 0 7px;
-  border-radius:
-    var(--control-radius);
+  border-radius: var(--control-radius);
   font-size: 0.7rem;
   font-weight: 750;
 }
@@ -323,99 +285,16 @@
 
 .deck-info {
   padding-left: 11px;
-  border-left:
-    1px solid
-    var(--border);
+  border-left: 1px solid var(--border);
   color: var(--text-dim);
   font-size: 0.72rem;
-  font-variant-numeric:
-    tabular-nums;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-@keyframes arena-stone-enter {
-  from {
-    opacity: 0;
-    transform:
-      translateY(-5%)
-      scale(0.72);
-  }
-
-  to {
-    opacity: 1;
-    transform:
-      translateY(0)
-      scale(0.89);
-  }
-}
-
-@keyframes arena-stone-exit {
-  from {
-    opacity: 1;
-    transform:
-      translateY(0)
-      scale(0.89);
-  }
-
-  to {
-    opacity: 0;
-    transform:
-      translateY(-5%)
-      scale(0.72);
-  }
-}
-
-@keyframes arena-marker-enter {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 0.86;
-  }
-}
-
-@keyframes arena-marker-exit {
-  from {
-    opacity: 0.86;
-  }
-
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes arena-line-enter {
-  from {
-    stroke-dashoffset: 1;
-    opacity: 0;
-  }
-
-  to {
-    stroke-dashoffset: 0;
-    opacity: 0.86;
-  }
-}
-
-@keyframes arena-line-exit {
-  from {
-    stroke-dashoffset: 0;
-    opacity: 0.86;
-  }
-
-  to {
-    stroke-dashoffset: 1;
-    opacity: 0;
-  }
 }
 
 @media (max-width: 700px) {
   .board-wrapper {
-    width:
-      min(
-        calc(100% - 20px),
-        78vh
-      );
+    width: min(calc(100% - 20px), 78vh);
   }
 
   .control-deck {
@@ -436,14 +315,12 @@
 
 @media (max-width: 480px) {
   .board-wrapper {
-    width:
-      calc(100% - 12px);
+    width: calc(100% - 12px);
     margin-bottom: 66px;
   }
 
   .control-deck {
-    max-width:
-      calc(100% - 14px);
+    max-width: calc(100% - 14px);
     padding: 5px 8px;
     gap: 6px;
   }
@@ -464,21 +341,9 @@
   }
 }
 
-@media (
-  max-height: 680px
-) and (
-  min-width: 701px
-) {
+@media (max-height: 680px) and (min-width: 701px) {
   .board-wrapper {
-    width:
-      min(
-        calc(100% - 30px),
-        calc(
-          100dvh -
-          var(--topbar-height) -
-          92px
-        )
-      );
+    width: min(calc(100% - 30px), calc(100dvh - var(--topbar-height) - 92px));
     margin-bottom: 60px;
   }
 

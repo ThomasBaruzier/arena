@@ -19,20 +19,18 @@ export const tournamentAccordionReducer = (state, action) => {
     }
 
     if (action.key === state.activeKey) {
-      if (state.targetKey) {
-        return {
-          ...state,
-          targetKey: null,
-          targetToken: null,
-          targetReady: false,
-          phase: 'open'
-        };
-      }
-
-      return {
-        ...state,
-        phase: 'closing'
-      };
+      return state.targetKey
+        ? {
+            ...state,
+            targetKey: null,
+            targetToken: null,
+            targetReady: false,
+            phase: 'open'
+          }
+        : {
+            ...state,
+            phase: 'closing'
+          };
     }
 
     if (action.key === state.targetKey) {
@@ -112,9 +110,10 @@ export const tournamentAccordionReducer = (state, action) => {
   }
 
   if (action.type === 'PRUNE') {
-    const activeKey = state.activeKey && action.keys.has(state.activeKey) ? state.activeKey : null;
-
-    const targetKey = state.targetKey && action.keys.has(state.targetKey) ? state.targetKey : null;
+    const activeKey =
+      state.activeKey && action.keys.has(state.activeKey) ? state.activeKey : null;
+    const targetKey =
+      state.targetKey && action.keys.has(state.targetKey) ? state.targetKey : null;
 
     if (activeKey === state.activeKey && targetKey === state.targetKey) {
       return state;
@@ -153,8 +152,10 @@ export const tournamentAccordionReducer = (state, action) => {
 };
 
 export function useTournamentAccordion() {
-  const [state, dispatch] = useReducer(tournamentAccordionReducer, initialTournamentAccordionState);
-
+  const [state, dispatch] = useReducer(
+    tournamentAccordionReducer,
+    initialTournamentAccordionState
+  );
   const nextToken = useRef(0);
 
   const request = useCallback((key) => {
@@ -199,11 +200,7 @@ export function useTournamentAccordion() {
         return state.phase;
       }
 
-      if (key === state.targetKey) {
-        return 'preparing';
-      }
-
-      return 'closed';
+      return key === state.targetKey ? 'preparing' : 'closed';
     },
     [state]
   );

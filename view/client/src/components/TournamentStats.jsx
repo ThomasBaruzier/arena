@@ -1,77 +1,35 @@
+import { formatDuration } from '../formatters';
+
+export { formatDuration as tournamentTimeValue } from '../formatters';
+
 const missing = (value) => value == null || value === '';
 
 const numberValue = (value, digits = 0) => {
-  if (missing(value)) {
-    return '-';
-  }
+  if (missing(value)) return '-';
 
   const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return '-';
-  }
-
-  return number.toFixed(digits);
+  return Number.isFinite(number) ? number.toFixed(digits) : '-';
 };
 
 const percentValue = (value) => {
-  if (missing(value)) {
-    return '-';
-  }
+  if (missing(value)) return '-';
 
   const number = Number(value);
 
-  if (!Number.isFinite(number)) {
-    return '-';
-  }
+  if (!Number.isFinite(number)) return '-';
 
   return `${Math.abs(number) >= 100 ? number.toFixed(0) : number.toFixed(1)}%`;
 };
 
-export const tournamentTimeValue = (value) => {
-  if (missing(value)) {
-    return '-';
-  }
-
-  const milliseconds = Number(value);
-
-  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
-    return '-';
-  }
-
-  if (milliseconds < 1000) {
-    return `${Math.round(milliseconds)}ms`;
-  }
-
-  const seconds = Math.floor(milliseconds / 1000);
-
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const totalMinutes = Math.floor(seconds / 60);
-
-  if (totalMinutes < 60) {
-    return `${totalMinutes}m${String(seconds % 60).padStart(2, '0')}s`;
-  }
-
-  const hours = Math.floor(totalMinutes / 60);
-
-  if (hours >= 100) {
-    return '100h+';
-  }
-
-  return `${hours}h${String(totalMinutes % 60).padStart(2, '0')}`;
-};
-
-const availablePercent = (samples, value) => (Number(samples) > 0 ? percentValue(value) : '-');
+const availablePercent = (samples, value) =>
+  Number(samples) > 0 ? percentValue(value) : '-';
 
 const valuesFor = (run, side, crashed, analyzed) => {
   const values = [
     numberValue(run[`${side}_elo`]),
     crashed
       ? numberValue(run[`${side}_crashes`])
-      : tournamentTimeValue(run[`${side}_total_time_ms`]),
+      : formatDuration(run[`${side}_total_time_ms`]),
     percentValue(run[`${side}_erf`]),
     percentValue(run[`${side}_eff`])
   ];
@@ -104,14 +62,10 @@ export default function TournamentStats({ run }) {
   if (!run) return null;
 
   const analyzed = Boolean(run.analysis_enabled);
-
   const crashed = Number(run.p1_crashes) > 0 || Number(run.p2_crashes) > 0;
-
   const headings = ['Elo', crashed ? 'Crash' : 'Time', 'ERF', 'Eff'];
 
-  if (analyzed) {
-    headings.push('CMA', 'Bln');
-  }
+  if (analyzed) headings.push('CMA', 'Bln');
 
   return (
     <section className="tournament-stats" aria-label="Tournament statistics">
@@ -131,7 +85,6 @@ export default function TournamentStats({ run }) {
         </div>
 
         <PlayerRow label="P1" values={valuesFor(run, 'p1', crashed, analyzed)} />
-
         <PlayerRow label="P2" values={valuesFor(run, 'p2', crashed, analyzed)} />
       </div>
     </section>

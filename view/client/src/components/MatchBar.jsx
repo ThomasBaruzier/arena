@@ -11,37 +11,25 @@ const playerForSlot = (game, slot) => {
 };
 
 const winnerSlot = (game) => {
-  if (game.winner_color === 1) {
-    return game.black_slot;
-  }
-
-  if (game.winner_color === 2) {
-    return game.white_slot;
-  }
-
+  if (game.winner_color === 1) return game.black_slot;
+  if (game.winner_color === 2) return game.white_slot;
   return 0;
 };
 
 const resultText = (game, winner) => {
-  if (game.winner_color === 0) {
-    return null;
-  }
-
-  if (game.winner_color === 3) {
-    return '½ – ½';
-  }
-
-  if (game.winner_color === 4) {
-    return 'VOID';
-  }
-
+  if (game.winner_color === 0) return null;
+  if (game.winner_color === 3) return '½ – ½';
+  if (game.winner_color === 4) return 'VOID';
   return winner === 1 ? '1 – 0' : '0 – 1';
 };
 
 const Identity = ({ player, side, winner }) => (
   <div className={`player-side player-${side}`}>
     {side === 'left' && (
-      <span className={`p-color ${player.color}`} aria-label={`${player.color} stone`} />
+      <span
+        className={`p-color ${player.color}`}
+        aria-label={`${player.color} stone`}
+      />
     )}
 
     <span className="player-identity">
@@ -63,22 +51,20 @@ const Identity = ({ player, side, winner }) => (
     </span>
 
     {side === 'right' && (
-      <span className={`p-color ${player.color}`} aria-label={`${player.color} stone`} />
+      <span
+        className={`p-color ${player.color}`}
+        aria-label={`${player.color} stone`}
+      />
     )}
   </div>
 );
 
 const MatchBar = memo(function MatchBar({ game }) {
-  if (!game) {
-    return <div className="placeholder-text">Select a match</div>;
-  }
+  if (!game) return <div className="placeholder-text">Select a match</div>;
 
   const first = playerForSlot(game, 1);
-
   const second = playerForSlot(game, 2);
-
   const winner = winnerSlot(game);
-
   const result = resultText(game, winner);
 
   return (
@@ -89,7 +75,9 @@ const MatchBar = memo(function MatchBar({ game }) {
         {result == null ? (
           <span className="live-tag">LIVE</span>
         ) : (
-          <span className={`final-score ${game.winner_color === 4 ? 'void' : ''}`}>{result}</span>
+          <span className={`final-score ${game.winner_color === 4 ? 'void' : ''}`}>
+            {result}
+          </span>
         )}
       </div>
 

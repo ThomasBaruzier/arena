@@ -24,13 +24,15 @@ public:
 
     bool start();
     bool restart();
+    bool set_max_nodes(uint64_t nodes);
 
     std::optional<Stats::EvalMetrics> eval(
         const std::vector<Core::Point>& moves
     );
 
-    bool set_max_nodes(uint64_t nodes);
-    pid_t pid() const { return process_->pid(); }
+    pid_t pid() const {
+        return process_->pid();
+    }
 
 private:
     bool fail(const std::string& message);
@@ -41,8 +43,7 @@ private:
         size_t count
     );
 
-    std::optional<Stats::EvalMetrics>
-    parse_eval_response();
+    std::optional<Stats::EvalMetrics> parse_eval_response();
 
     std::unique_ptr<Sys::Process> process_;
     std::string cmd_;

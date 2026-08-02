@@ -93,7 +93,10 @@ describe('viewer generation', () => {
 
     const broadcast = vi.spyOn(sse, 'broadcast');
 
-    const reset = await request(app).delete('/api/reset').set('x-api-key', API_KEY).expect(200);
+    const reset = await request(app)
+      .delete('/api/reset')
+      .set('x-api-key', API_KEY)
+      .expect(200);
 
     const newGeneration = reset.headers['x-arena-generation'];
 

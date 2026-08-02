@@ -30,11 +30,7 @@
 @media (max-width: 700px) {
   .topbar {
     padding: 0 7px;
-    grid-template-columns: 32px minmax(0, 1fr) 32px;
-  }
-
-  .topbar::after {
-    width: 32px;
+    grid-template-columns: 32px minmax(0, 1fr);
   }
 
   .menu-toggle,
@@ -62,7 +58,9 @@
   }
 
   .match-bar .p-ver,
-  .match-bar .p-name {
+  .match-bar .p-name,
+  .live-tag,
+  .final-score {
     height: 20px;
     font-size: 0.84rem;
     line-height: 20px;
@@ -79,24 +77,14 @@
 
   .live-tag {
     min-width: 52px;
-    height: 24px;
     padding: 0 6px;
-    font-size: 0.72rem;
-  }
-
-  .final-score {
-    font-size: 0.96rem;
   }
 }
 
 @media (max-width: 390px) {
   .topbar {
     padding: 0 5px;
-    grid-template-columns: 30px minmax(0, 1fr) 30px;
-  }
-
-  .topbar::after {
-    width: 30px;
+    grid-template-columns: 30px minmax(0, 1fr);
   }
 
   .menu-toggle,
@@ -124,7 +112,9 @@
   }
 
   .match-bar .p-ver,
-  .match-bar .p-name {
+  .match-bar .p-name,
+  .live-tag,
+  .final-score {
     height: 20px;
     font-size: 0.78rem;
     line-height: 20px;
@@ -141,17 +131,8 @@
 
   .live-tag {
     min-width: 48px;
-    height: 23px;
     padding: 0 4px;
-    font-size: 0.7rem;
-  }
-
-  .final-score {
-    font-size: 0.9rem;
-  }
-
-  .final-score.void {
-    font-size: 0.7rem;
+    letter-spacing: 0.035em;
   }
 }
 

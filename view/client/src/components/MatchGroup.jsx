@@ -1,34 +1,16 @@
 import { useEffect, useId, useRef } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, Loader, RotateCcw } from 'lucide-react';
-import TournamentStats from './TournamentStats';
-import { getRunId } from '../utils';
+import { formatDuration, formatGameId } from '../formatters';
 import { useTournamentHistory } from '../hooks/useTournamentHistory';
+import { getRunId } from '../utils';
+import TournamentStats from './TournamentStats';
 
 const COLUMNS = [
-  {
-    column: 'id',
-    label: 'ID',
-    name: 'game ID'
-  },
-  {
-    column: null,
-    label: 'Side'
-  },
-  {
-    column: 'moves',
-    label: 'Mvs',
-    name: 'move count'
-  },
-  {
-    column: 'duration',
-    label: 'Dur',
-    name: 'duration'
-  },
-  {
-    column: 'result',
-    label: 'Res',
-    name: 'result'
-  }
+  { column: 'id', label: 'ID', name: 'game ID' },
+  { column: null, label: 'Side' },
+  { column: 'moves', label: 'Mvs', name: 'move count' },
+  { column: 'duration', label: 'Dur', name: 'duration' },
+  { column: 'result', label: 'Res', name: 'result' }
 ];
 
 const slot1Won = (game) =>
@@ -39,51 +21,25 @@ const resultLabel = (game) => {
   if (game.winner_color === 0) return 'live';
   if (game.winner_color === 3) return 'draw';
   if (game.winner_color === 4) return 'void';
-
   return slot1Won(game) ? 'slot 1 win' : 'slot 1 loss';
 };
 
 const resultClass = (game) => {
   if (game.winner_color === 3) return 'res-dot draw';
   if (game.winner_color === 4) return 'res-dot void';
-
   return slot1Won(game) ? 'res-dot res-win' : 'res-dot res-loss';
-};
-
-const durationValue = (value) => {
-  const milliseconds = Number(value);
-
-  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
-    return '-';
-  }
-
-  if (milliseconds < 1000) {
-    return `${Math.round(milliseconds)}ms`;
-  }
-
-  if (milliseconds < 60000) {
-    const seconds = milliseconds / 1000;
-
-    return `${seconds < 10 ? seconds.toFixed(1).replace(/\.0$/, '') : Math.round(seconds)}s`;
-  }
-
-  const seconds = Math.floor(milliseconds / 1000);
-
-  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
 };
 
 const timestampValue = (value) => {
   const date = new Date(value);
-
   return Number.isNaN(date.getTime()) ? 'unknown time' : date.toLocaleString();
 };
 
-const Identity = ({ player, leading }) => (
+const Identity = ({ player }) => (
   <span className="player-identity" data-testid={`player-row-${player.slot}`}>
-    <span className={`p-name-text ${leading ? 'gold-text' : ''}`} title={player.name}>
+    <span className="p-name-text" title={player.name}>
       {player.name}
     </span>
-
     <span className="ver-tag" title={player.version}>
       {player.version}
     </span>
@@ -91,7 +47,10 @@ const Identity = ({ player, leading }) => (
 );
 
 const Record = ({ wins, losses, draws }) => (
-  <span className="tournament-record" aria-label={`${wins} wins, ${losses} losses, ${draws} draws`}>
+  <span
+    className="tournament-record"
+    aria-label={`${wins} wins, ${losses} losses, ${draws} draws`}
+  >
     <span className="badge win">W {wins}</span>
     <span className="badge loss">L {losses}</span>
     <span className="badge draw">D {draws}</span>
@@ -106,12 +65,8 @@ const TournamentIndicator = ({ phase }) => (
 );
 
 const SortIcon = ({ active, ascending, pending }) => {
-  if (pending) {
-    return <Loader size={10} className="spin" />;
-  }
-
+  if (pending) return <Loader size={10} className="spin" />;
   if (!active) return null;
-
   return ascending ? <ChevronUp size={10} /> : <ChevronDown size={10} />;
 };
 
@@ -137,7 +92,6 @@ export default function MatchGroup({
   const detailsId = useId();
   const sentinelRef = useRef(null);
   const runId = getRunId(group);
-
   const effectiveRun =
     run || group.run
       ? {
@@ -167,23 +121,24 @@ export default function MatchGroup({
   });
 
   useEffect(() => {
-    if (phase !== 'open' || error || paginationError || !hasMore || !sentinelRef.current) {
+    if (
+      phase !== 'open' ||
+      error ||
+      paginationError ||
+      !hasMore ||
+      !sentinelRef.current
+    ) {
       return undefined;
     }
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && !fetching) {
-          loadMore();
-        }
+        if (entry.isIntersecting && !fetching) loadMore();
       },
-      {
-        rootMargin: '100px'
-      }
+      { rootMargin: '100px' }
     );
 
     observer.observe(sentinelRef.current);
-
     return () => observer.disconnect();
   }, [phase, error, paginationError, hasMore, fetching, loadMore]);
 
@@ -194,13 +149,14 @@ export default function MatchGroup({
   const losses = effectiveRun?.losses ?? group.villainWins ?? 0;
   const draws = effectiveRun?.draws ?? group.draws ?? 0;
   const progress = totalGames > 0 ? Math.min(100, (gamesPlayed / totalGames) * 100) : 0;
+  const tone = wins > losses ? 'slot1-ahead' : losses > wins ? 'slot1-behind' : 'tied';
   const mounted = phase !== 'closed';
   const expanded = phase === 'opening' || phase === 'open' || phase === 'closing';
   const interactive = phase === 'open';
   const retryVisible = error || (fetching && pairs.length === 0 && phase === 'open');
 
   return (
-    <div className={`group-item ${phase}`} data-testid="match-group">
+    <div className={`group-item ${phase} ${tone}`} data-testid="match-group">
       <button
         type="button"
         className="group-header"
@@ -210,28 +166,24 @@ export default function MatchGroup({
         onClick={onRequest}
       >
         {status === 'live' && totalGames > 0 && (
-          <span
-            className="header-progress-bg"
-            style={{
-              width: `${progress}%`
-            }}
-          />
+          <span className="header-progress-bg" style={{ width: `${progress}%` }} />
         )}
 
         <TournamentIndicator phase={phase} />
 
         <span className="tournament-summary">
           <span className="summary-row">
-            <Identity player={group.hero} leading={wins > losses} />
+            <Identity player={group.hero} />
             <Record wins={wins} losses={losses} draws={draws} />
           </span>
 
           <span className="summary-row">
-            <Identity player={group.villain} leading={losses > wins} />
+            <Identity player={group.villain} />
 
             <span className="run-summary">
-              <span className={`badge run-status ${status}`}>{status.toUpperCase()}</span>
-
+              <span className={`badge run-status ${status}`}>
+                {status.toUpperCase()}
+              </span>
               <span className={`badge run-progress ${status}`}>
                 {gamesPlayed}
                 {totalGames > 0 ? `/${totalGames}` : ''}
@@ -262,20 +214,36 @@ export default function MatchGroup({
               <TournamentStats run={effectiveRun} />
 
               {retryVisible ? (
-                <div className="retry-state" role="alert" aria-label="Could not load game history">
+                <div
+                  className="retry-state"
+                  role="alert"
+                  aria-label="Could not load game history"
+                >
                   <RetryButton loading={fetching} label="Retry" onClick={retry} />
                 </div>
               ) : (
                 <>
-                  <div className="match-header-row" role="row" aria-label="Historical game columns">
+                  <div
+                    className="match-header-row"
+                    role="row"
+                    aria-label="Historical game columns"
+                  >
                     {COLUMNS.map(({ column, label, name }) => {
                       const active = column && sort.col === column;
                       const pending = column && pendingSort?.col === column;
-                      const direction = active ? (sort.asc ? 'ascending' : 'descending') : 'none';
+                      const direction = active
+                        ? sort.asc
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none';
 
                       if (!column) {
                         return (
-                          <span key={label} className="history-head-cell side" role="columnheader">
+                          <span
+                            key={label}
+                            className="history-head-cell side"
+                            role="columnheader"
+                          >
                             {label}
                           </span>
                         );
@@ -297,9 +265,12 @@ export default function MatchGroup({
                             onClick={() => sortBy(column)}
                           >
                             <span>{label}</span>
-
                             <span className="sort-icon">
-                              <SortIcon active={active} ascending={sort.asc} pending={pending} />
+                              <SortIcon
+                                active={active}
+                                ascending={sort.asc}
+                                pending={pending}
+                              />
                             </span>
                           </button>
                         </span>
@@ -310,12 +281,19 @@ export default function MatchGroup({
                   {pairs.map((pair) => (
                     <div
                       key={pair.group_id}
-                      className={`pair-container ${pair.games.length === 1 ? 'pending' : ''}`}
+                      className={`pair-container ${
+                        pair.games.length === 1 ? 'pending' : ''
+                      }`}
                     >
                       {pair.games.map((game) => {
-                        const duration =
-                          game.winner_color === 0 ? '—' : durationValue(game.duration);
-
+                        const live = game.winner_color === 0;
+                        const duration = live ? '—' : formatDuration(game.duration);
+                        const durationTitle = live
+                          ? 'Duration in progress'
+                          : `${game.duration} ms`;
+                        const durationDescription = live
+                          ? 'duration in progress'
+                          : `${game.duration} milliseconds`;
                         const side = game.black_slot === 1 ? 'black' : 'white';
 
                         return (
@@ -328,16 +306,17 @@ export default function MatchGroup({
                             onClick={() => onSelectGame(game.id)}
                             data-testid="match-row"
                             aria-label={
-                              `Game ${game.id}, ` +
-                              `slot 1 ${side}, ` +
-                              `${game.move_count} moves, ` +
-                              `${duration}, ` +
-                              `${resultLabel(game)}, ` +
-                              timestampValue(game.timestamp)
+                              `Game ${game.id}, slot 1 ${side}, ` +
+                              `${game.move_count} moves, ${durationDescription}, ` +
+                              `${resultLabel(game)}, ${timestampValue(game.timestamp)}`
                             }
                           >
-                            <span className="row-id" aria-hidden="true">
-                              #{game.id}
+                            <span
+                              className="row-id"
+                              aria-hidden="true"
+                              title={`Game ${game.id}`}
+                            >
+                              {formatGameId(game.id)}
                             </span>
 
                             <span className="row-side" aria-hidden="true">
@@ -348,12 +327,16 @@ export default function MatchGroup({
                               {game.move_count}
                             </span>
 
-                            <span className="row-duration" aria-hidden="true">
+                            <span
+                              className="row-duration"
+                              aria-hidden="true"
+                              title={durationTitle}
+                            >
                               {duration}
                             </span>
 
                             <span className="row-status" aria-hidden="true">
-                              {game.winner_color === 0 ? (
+                              {live ? (
                                 <span className="live-dot" />
                               ) : (
                                 <span className={resultClass(game)} />
@@ -374,14 +357,15 @@ export default function MatchGroup({
 
                   {paginationError ? (
                     <div
-                      className="retry-state"
-                      style={{
-                        minHeight: 48
-                      }}
+                      className="retry-state compact"
                       role="status"
                       aria-label="Could not load more games"
                     >
-                      <RetryButton loading={fetching} label="Load more" onClick={retryPage} />
+                      <RetryButton
+                        loading={fetching}
+                        label="Load more"
+                        onClick={retryPage}
+                      />
                     </div>
                   ) : (
                     hasMore && (

@@ -17,23 +17,48 @@
 }
 
 .group-item {
-  background: var(--bg-panel);
+  background-color: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   flex-shrink: 0;
   transition:
     border-color 160ms ease,
-    background 160ms ease;
+    background-color 160ms ease;
 }
 
 .group-item:hover {
   border-color: #38383d;
 }
 
+.group-item.closed.slot1-ahead,
+.group-item.preparing.slot1-ahead {
+  background-color: #171c19;
+  border-color: rgba(74, 222, 128, 0.24);
+}
+
+.group-item.closed.slot1-behind,
+.group-item.preparing.slot1-behind {
+  background-color: #1c1719;
+  border-color: rgba(248, 113, 113, 0.24);
+}
+
+.group-item.closed.slot1-ahead:hover,
+.group-item.preparing.slot1-ahead:hover {
+  background-color: #19211c;
+  border-color: rgba(74, 222, 128, 0.34);
+}
+
+.group-item.closed.slot1-behind:hover,
+.group-item.preparing.slot1-behind:hover {
+  background-color: #21191b;
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
 .group-item.opening,
 .group-item.open,
 .group-item.closing {
+  background-color: var(--bg-panel);
   border-color: #3b3b40;
 }
 
@@ -54,7 +79,7 @@
 }
 
 .group-header:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .group-item.opening .group-header,
@@ -147,32 +172,29 @@
 .player-identity {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+}
+
+.p-name-text,
+.ver-tag {
+  height: 18px;
+  font-size: 0.82rem;
+  line-height: 18px;
+  white-space: nowrap;
 }
 
 .p-name-text {
   min-width: 0;
   color: var(--text-strong);
-  font-size: 0.88rem;
   font-weight: 680;
-  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 160ms ease;
-}
-
-.p-name-text.gold-text {
-  color: var(--accent);
 }
 
 .ver-tag {
   color: var(--text-dim);
-  font-size: 0.67rem;
   font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
   flex-shrink: 0;
 }
 
@@ -285,7 +307,7 @@
 }
 
 .tournament-stats {
-  padding: 8px 4px 9px;
+  padding: 8px 8px 9px;
   background: rgba(255, 255, 255, 0.018);
   overflow: hidden;
   font-size: 0.7rem;
@@ -293,7 +315,7 @@
 }
 
 .stats-table {
-  width: 252px;
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -304,11 +326,23 @@
 }
 
 .stats-table.core .stats-row {
-  grid-template-columns: 24px 48px 60px 60px 60px;
+  grid-template-columns:
+    20px
+    minmax(0, 1fr)
+    minmax(0, 1.15fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr);
 }
 
 .stats-table.analyzed .stats-row {
-  grid-template-columns: 24px 36px 44px 37px 37px 37px 37px;
+  grid-template-columns:
+    20px
+    minmax(0, 1fr)
+    minmax(0, 1.15fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr);
 }
 
 .stats-row > span {
@@ -338,7 +372,7 @@
   color: var(--text);
   font-size: 0.72rem;
   font-weight: 720;
-  text-align: left;
+  text-align: center;
 }
 
 .retry-state {
@@ -346,6 +380,10 @@
   border-top: 1px solid var(--border-soft);
   display: grid;
   place-items: center;
+}
+
+.retry-state.compact {
+  min-height: 48px;
 }
 
 .retry-state button {
@@ -377,13 +415,12 @@
 
 .match-header-row,
 .match-row {
-  --history-grid: minmax(0, 1fr) 36px 40px 56px 36px;
-
+  --history-grid: 60px 36px 38px 56px 36px;
   width: 100%;
-  padding-right: 10px;
-  padding-left: 10px;
+  padding: 0 8px;
   display: grid;
   grid-template-columns: var(--history-grid);
+  justify-content: space-between;
   align-items: center;
 }
 
@@ -412,10 +449,6 @@
 
 .history-head-cell.id {
   justify-content: flex-start;
-}
-
-.history-head-cell.duration {
-  justify-content: flex-end;
 }
 
 .sort-col {
@@ -448,18 +481,14 @@
   justify-content: flex-start;
 }
 
-.sort-col.duration > span:first-child {
-  justify-content: flex-end;
-}
-
 .sort-col:hover:not(:disabled),
 .sort-col.active {
   color: var(--text);
 }
 
 .sort-icon {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   position: absolute;
   top: 50%;
   right: 1px;
@@ -471,14 +500,9 @@
 }
 
 .sort-icon svg {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   stroke-width: 2.5;
-}
-
-.sort-col.duration .sort-icon {
-  right: auto;
-  left: 1px;
 }
 
 .pair-container {
@@ -532,10 +556,6 @@
 
 .row-id {
   justify-content: flex-start;
-}
-
-.row-duration {
-  justify-content: flex-end;
 }
 
 .row-moves,

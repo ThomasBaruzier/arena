@@ -9,20 +9,18 @@ export default function ControlDeck({
   totalMoves,
   moveIndex,
   speed,
-  setSpeed,
-  transition,
-  visualTransitioning
+  setSpeed
 }) {
+  const atStart = moveIndex === 0;
   const atEnd = moveIndex >= totalMoves;
-  const movementLocked = Boolean(transition) || visualTransitioning;
 
   return (
-    <div className="control-deck" aria-label="Game playback" aria-busy={movementLocked}>
+    <div className="control-deck" aria-label="Game playback">
       <div className="deck-group playback">
         <button
           type="button"
           aria-label="Replay from start"
-          disabled={moveIndex === 0 || movementLocked}
+          disabled={atStart}
           onClick={replayFromStart}
         >
           <RotateCcw size={17} />
@@ -32,7 +30,7 @@ export default function ControlDeck({
           type="button"
           className="play-btn"
           aria-label={isPlaying ? 'Pause playback' : 'Play playback'}
-          disabled={totalMoves === 0 || (atEnd && !isPlaying) || (movementLocked && !isPlaying)}
+          disabled={totalMoves === 0 || (atEnd && !isPlaying)}
           onClick={() => setIsPlaying(!isPlaying)}
         >
           {isPlaying ? (
@@ -45,7 +43,7 @@ export default function ControlDeck({
         <button
           type="button"
           aria-label="Previous move"
-          disabled={moveIndex === 0 || movementLocked}
+          disabled={atStart}
           onClick={previousMove}
         >
           <SkipBack size={17} />
@@ -54,7 +52,7 @@ export default function ControlDeck({
         <button
           type="button"
           aria-label="Next move"
-          disabled={atEnd || movementLocked}
+          disabled={atEnd}
           onClick={nextMove}
         >
           <SkipForward size={17} />
