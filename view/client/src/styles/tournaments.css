@@ -326,23 +326,17 @@
 }
 
 .stats-table.core .stats-row {
+  padding-left: 18px;
   grid-template-columns:
     20px
-    minmax(0, 1fr)
-    minmax(0, 1.15fr)
-    minmax(0, 1fr)
-    minmax(0, 1fr);
+    repeat(4, minmax(0, 1fr));
 }
 
 .stats-table.analyzed .stats-row {
+  padding-left: 10px;
   grid-template-columns:
     20px
-    minmax(0, 1fr)
-    minmax(0, 1.15fr)
-    minmax(0, 1fr)
-    minmax(0, 1fr)
-    minmax(0, 1fr)
-    minmax(0, 1fr);
+    repeat(6, minmax(0, 1fr));
 }
 
 .stats-row > span {
