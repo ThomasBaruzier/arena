@@ -56,65 +56,63 @@ def parse_opening(
 def get_canonical(
     moves: list[tuple[int, int]],
     board_size: int
-) -> tuple[tuple[int, int], ...]:
+) -> tuple[tuple[int, int, int], ...]:
     if not moves:
         return ()
 
     limit = board_size - 1
-
-    candidates = [
-        tuple(sorted(moves)),
-        tuple(
-            sorted(
-                (limit - y, x)
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (
-                    limit - x,
-                    limit - y
-                )
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (y, limit - x)
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (limit - x, y)
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (x, limit - y)
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (y, x)
-                for x, y in moves
-            )
-        ),
-        tuple(
-            sorted(
-                (
-                    limit - y,
-                    limit - x
-                )
-                for x, y in moves
-            )
+    colored = [
+        (
+            x,
+            y,
+            1 if index % 2 == 0 else 2
         )
+        for index, (x, y) in enumerate(moves)
     ]
 
-    return min(candidates)
+    transforms = (
+        lambda x, y: (x, y),
+        lambda x, y: (limit - y, x),
+        lambda x, y: (limit - x, limit - y),
+        lambda x, y: (y, limit - x),
+        lambda x, y: (limit - x, y),
+        lambda x, y: (x, limit - y),
+        lambda x, y: (y, x),
+        lambda x, y: (limit - y, limit - x)
+    )
+
+    return min(
+        tuple(
+            sorted(
+                (
+                    *transform(x, y),
+                    color
+                )
+                for x, y, color in colored
+            )
+        )
+        for transform in transforms
+    )
+
+
+def format_board(
+    moves: list[tuple[int, int]]
+) -> str:
+    own_color = (
+        1 if len(moves) % 2 == 0
+        else 2
+    )
+
+    return '\n'.join(
+        (
+            f'{column},{row},'
+            f'{1 if (index % 2 + 1) == own_color else 2}'
+        )
+        for index, (
+            column,
+            row
+        ) in enumerate(moves)
+    )
 
 
 def stop_process(
@@ -197,16 +195,7 @@ def evaluate_opening(
         if not moves:
             return opening, None
 
-        board_lines = '\n'.join(
-            (
-                f'{column},{row},'
-                f'{1 if index % 2 == 0 else 2}'
-            )
-            for index, (
-                column,
-                row
-            ) in enumerate(moves)
-        )
+        board_lines = format_board(moves)
 
         input_data = (
             f'START {board_size}\n'
@@ -435,7 +424,7 @@ def load_existing(
     list[str],
     set[
         tuple[
-            tuple[int, int],
+            tuple[int, int, int],
             ...
         ]
     ]

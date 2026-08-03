@@ -71,7 +71,7 @@ class OpeningsScriptTest(
             )
         )
 
-    def test_move_order_does_not_change_canonical_form(self):
+    def test_reversing_odd_sequence_preserves_ownership(self):
         first = [
             (3, 4),
             (8, 9),
@@ -87,6 +87,53 @@ class OpeningsScriptTest(
                 list(reversed(first)),
                 20
             )
+        )
+
+    def test_changed_parity_changes_canonical_position(self):
+        first = [
+            (3, 4),
+            (8, 9),
+            (1, 2)
+        ]
+
+        ownership_changed = [
+            first[1],
+            first[0],
+            first[2]
+        ]
+
+        self.assertNotEqual(
+            openings.get_canonical(
+                first,
+                20
+            ),
+            openings.get_canonical(
+                ownership_changed,
+                20
+            )
+        )
+
+    def test_even_opening_board_is_black_relative(self):
+        self.assertEqual(
+            openings.format_board(
+                [
+                    (9, 9),
+                    (10, 10)
+                ]
+            ),
+            '9,9,1\n10,10,2'
+        )
+
+    def test_odd_opening_board_is_white_relative(self):
+        self.assertEqual(
+            openings.format_board(
+                [
+                    (9, 9),
+                    (10, 10),
+                    (8, 8)
+                ]
+            ),
+            '9,9,2\n10,10,1\n8,8,2'
         )
 
     def test_load_existing_suppresses_symmetry_duplicates(self):
