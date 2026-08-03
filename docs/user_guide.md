@@ -280,6 +280,8 @@ Replay pauses playback and returns to the empty position.
 
 Previous and Next step through individual moves. The speed controls choose the automatic playback rate.
 
+Playback controls follow the requested position immediately and do not wait for stone, marker, or winning-line animations.
+
 The winning line is shown on the final position when the game ended with five or more stones in a row.
 
 ## Play controls
@@ -300,7 +302,7 @@ The Analysis card retains the AI search history for the current game.
 
 ## Sharing and restoration
 
-The link action in the Analysis heading copies a self-contained URL for the current game.
+The link action in the Analysis heading copies a self-contained URL for the current in-memory game.
 
 A shared link preserves:
 
@@ -308,12 +310,22 @@ A shared link preserves:
 - Player color
 - Think time
 - Analysis history
-- Bot identity associated with the analysis
+- Bot identity associated with each analysis record
 
-An unfinished shared game can be continued.
+Opening a shared link does not replace the saved local game.
+
+The shared game remains ephemeral while it is only being viewed. If the restored position is an AI turn, the current bundled bot moves immediately, but that automatic move, its analysis, and any resulting score remain in memory only.
+
+The shared game is adopted after the Player makes a move that the worker accepts. Adoption saves the complete latest state, including any automatic AI move that occurred after opening the link, then removes the shared fragment.
+
+Changing As or Time, opening controls, copying another link, and copying the CSV export do not adopt a shared game.
+
+Pressing New Game explicitly replaces the saved game after the worker confirms the new position.
 
 If the bundled bot has changed, existing analysis keeps its recorded bot identity and future AI moves use the currently bundled bot.
 
-Play saves the current game in the browser. Reloading restores the latest position and analysis when no shared game is present.
+The base URL restores the latest adopted local game. The browser retains one local game checkpoint together with its score and scoring state.
 
-The clipboard action copies a sectioned CSV export containing game metadata, chronological moves, and exact analysis values.
+A stale tab cannot overwrite a newer game session. If storage changes in another tab, the older tab reports that a newer game is active instead of replacing it.
+
+The clipboard action copies a sectioned CSV export containing game metadata, chronological moves, explicit Player and AI actors, bot provenance, and exact analysis values.
