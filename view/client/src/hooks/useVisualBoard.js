@@ -60,6 +60,16 @@ const retireLayer = (layer, now, duration) => {
   };
 };
 
+const outgoingMarker = (markers, priorIndex) => {
+  for (let index = markers.length - 1; index >= 0; index -= 1) {
+    if (markers[index].index === priorIndex) {
+      return markers[index];
+    }
+  }
+
+  return markers.at(-1) ?? null;
+};
+
 export const visualBoardReducer = (state, action) => {
   if (action.type === 'SYNC') {
     return {
@@ -319,36 +329,45 @@ export function useVisualBoard({ gameId, moves, winningLine, motion }) {
         }
       }
 
-      const nextMarkers = [];
+      const retiring = [];
 
       for (const marker of current.markers) {
-        if (targetMarker && marker.id === targetMarker.id) {
+        if (marker.index === targetIndex && sameMove(marker, targetMove)) {
           continue;
         }
 
         const retired = retireLayer(marker, now, markerDuration);
 
         if (retired) {
-          nextMarkers.push(retired);
+          retiring.push(retired);
         }
+      }
+
+      const nextMarkers = [];
+      const outgoing = outgoingMarker(retiring, prior.moves.length - 1);
+
+      if (outgoing) {
+        nextMarkers.push(outgoing);
       }
 
       if (targetMove) {
         nextMarkers.push(
-          targetMarker
-            ? {
-                ...targetMarker,
-                status: 'entering',
-                startAt: markerStart,
-                duration: markerDuration
-              }
-            : makeMarker(
-                targetMove,
-                targetIndex,
-                'entering',
-                markerStart,
-                markerDuration
-              )
+          targetMarker?.status === 'stable'
+            ? targetMarker
+            : targetMarker
+              ? {
+                  ...targetMarker,
+                  status: 'entering',
+                  startAt: markerStart,
+                  duration: markerDuration
+                }
+              : makeMarker(
+                  targetMove,
+                  targetIndex,
+                  'entering',
+                  markerStart,
+                  markerDuration
+                )
         );
       }
 

@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useVisualBoard } from './useVisualBoard';
 
@@ -100,4 +100,66 @@ it('reverses a marker that has already started entering', () => {
     startAt: 1050,
     duration: 150
   });
+});
+
+it('keeps only one target and one outgoing marker through rapid retargeting', () => {
+  vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+  const moves = [move(1, 1, 1), move(2, 2, 2), move(3, 3, 1), move(4, 4, 2)];
+  const { result, rerender } = renderHook(
+    ({ count }) =>
+      useVisualBoard({
+        gameId: 1,
+        moves: moves.slice(0, count),
+        winningLine: [],
+        motion: {
+          token: count,
+          kind: 'sync'
+        }
+      }),
+    {
+      initialProps: {
+        count: 4
+      }
+    }
+  );
+
+  rerender({ count: 3 });
+
+  const stale = result.current.markers.find((marker) => marker.index === 3);
+
+  expect(result.current.markers).toHaveLength(2);
+
+  performance.now.mockReturnValue(1020);
+  rerender({ count: 2 });
+
+  expect(result.current.markers).toHaveLength(2);
+  expect(result.current.markers.map((marker) => marker.index).sort()).toEqual([1, 2]);
+
+  performance.now.mockReturnValue(1040);
+  rerender({ count: 3 });
+
+  expect(result.current.markers).toHaveLength(2);
+  expect(
+    result.current.markers.filter((marker) => marker.status !== 'exiting')
+  ).toEqual([
+    expect.objectContaining({
+      index: 2,
+      status: 'entering'
+    })
+  ]);
+  expect(
+    result.current.markers.filter((marker) => marker.status === 'exiting')
+  ).toEqual([
+    expect.objectContaining({
+      index: 1
+    })
+  ]);
+
+  act(() => {
+    result.current.finishMarker(stale.id, 'exiting');
+  });
+
+  expect(result.current.markers).toHaveLength(2);
+  expect(result.current.markers.some((marker) => marker.index === 2)).toBe(true);
 });
